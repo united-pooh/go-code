@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"paw/internal/loop"
+	"paw/internal/runtime/loop"
 )
 
 type restoredModeRunner struct {

@@ -8,7 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
-	"paw/internal/theme"
+	"paw/internal/ui/theme"
 )
 
 func TestSyntaxLanguageInferenceUsesFileExtension(t *testing.T) {

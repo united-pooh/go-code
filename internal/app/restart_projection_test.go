@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"paw/internal/message"
-	"paw/internal/session"
+	"paw/internal/storage/session"
 )
 
 func TestRestartMarksUnfinishedTurnsInterrupted(t *testing.T) {

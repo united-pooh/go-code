@@ -3,7 +3,7 @@ package bubble
 import (
 	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
-	"paw/internal/settings"
+	"paw/internal/platform/settings"
 	"strings"
 )
 

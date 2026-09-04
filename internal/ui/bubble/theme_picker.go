@@ -6,7 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"paw/internal/theme"
+	"paw/internal/ui/theme"
 )
 
 type themePickerState struct {

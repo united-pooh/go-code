@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"github.com/rivo/uniseg"
-	"paw/internal/model"
-	selecttool "paw/internal/tool/select"
+	"paw/internal/capability/model"
+	selecttool "paw/internal/capability/tool/select"
 	"paw/internal/ui"
 )
 

@@ -13,7 +13,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
-	"paw/internal/task"
+	"paw/internal/runtime/task"
 )
 
 func TestCaptureActivityDockVisualFixtures(t *testing.T) {

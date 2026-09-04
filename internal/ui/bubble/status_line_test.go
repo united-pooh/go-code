@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/x/ansi"
-	"paw/internal/loop"
+	"paw/internal/runtime/loop"
 )
 
 func TestDockBorderLayoutUsesFullProgressTopAndSwappedBottomMetadata(t *testing.T) {

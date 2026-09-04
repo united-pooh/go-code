@@ -6,7 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
-	configv2 "paw/internal/config"
+	configv2 "paw/internal/platform/config"
 )
 
 func TestModelWizardSearchFiltersModelsAndPreservesCatalogSelection(t *testing.T) {

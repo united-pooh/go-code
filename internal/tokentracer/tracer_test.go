@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"paw/internal/model"
+	"paw/internal/capability/model"
 )
 
 func TestUsageFromModelUsageNormalizesCachedPromptTokens(t *testing.T) {

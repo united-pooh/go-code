@@ -2,7 +2,7 @@ package bubble
 
 import (
 	"github.com/charmbracelet/lipgloss"
-	"paw/internal/theme"
+	"paw/internal/ui/theme"
 )
 
 // StyleSet contains the theme-derived styles owned by one appModel.

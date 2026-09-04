@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"paw/internal/session"
+	"paw/internal/storage/session"
 )
 
 func TestRestoreQueuedInputsKeepsOnlyUnconsumedCommands(t *testing.T) {

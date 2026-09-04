@@ -12,8 +12,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 
-	modelcfg "paw/internal/model"
-	"paw/internal/settings"
+	modelcfg "paw/internal/capability/model"
+	"paw/internal/platform/settings"
 )
 
 // TestDetectWordLanguage 验证中英文方向由应用层正则判定。

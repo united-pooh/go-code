@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"paw/internal/task"
+	"paw/internal/runtime/task"
 )
 
 func TestOpenAndCloseActivityPreserveWidthTabAndSelection(t *testing.T) {

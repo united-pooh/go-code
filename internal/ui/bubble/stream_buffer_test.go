@@ -9,7 +9,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
-	"paw/internal/settings"
+	"paw/internal/platform/settings"
 	"paw/internal/ui"
 )
 

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"paw/internal/session"
+	"paw/internal/storage/session"
 )
 
 const (

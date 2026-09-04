@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"paw/internal/actor"
-	"paw/internal/session"
+	"paw/internal/runtime/actor"
+	"paw/internal/storage/session"
 )
 
 func TestSessionSnapshotIncludesStreamingStateAndEventWatermark(t *testing.T) {

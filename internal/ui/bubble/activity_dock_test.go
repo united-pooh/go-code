@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/x/ansi"
-	"paw/internal/task"
+	"paw/internal/runtime/task"
 )
 
 func TestRenderActivityPaneHasExactSizeAndNoNestedBorder(t *testing.T) {

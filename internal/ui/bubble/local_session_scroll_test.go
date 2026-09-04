@@ -11,7 +11,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"paw/internal/session"
+	"paw/internal/storage/session"
 )
 
 const (

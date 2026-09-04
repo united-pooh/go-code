@@ -6,7 +6,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
-	"paw/internal/theme"
+	"paw/internal/ui/theme"
 )
 
 func TestViewPaintsWholeTokyoNightLightBackground(t *testing.T) {

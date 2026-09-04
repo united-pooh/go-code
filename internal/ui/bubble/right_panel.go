@@ -8,7 +8,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
-	"paw/internal/task"
+	"paw/internal/runtime/task"
 )
 
 // renderTasksCardContent 渲染 Tasks 内容（Task 4 实现）。

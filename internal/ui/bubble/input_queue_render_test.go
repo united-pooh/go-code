@@ -6,7 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
-	"paw/internal/loop"
+	"paw/internal/runtime/loop"
 	"paw/internal/ui/bubble/textareax"
 )
 

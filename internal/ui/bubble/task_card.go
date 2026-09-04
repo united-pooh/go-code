@@ -1,6 +1,6 @@
 package bubble
 
-import taskpkg "paw/internal/task"
+import taskpkg "paw/internal/runtime/task"
 
 func (m appModel) runningTasks() []taskpkg.TaskSnapshot {
 	if m.taskController == nil {

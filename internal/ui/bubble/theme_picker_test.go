@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"paw/internal/settings"
-	"paw/internal/theme"
+	"paw/internal/platform/settings"
+	"paw/internal/ui/theme"
 )
 
 func TestThemeCommandIsRegistered(t *testing.T) {

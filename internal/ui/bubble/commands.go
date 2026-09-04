@@ -7,8 +7,8 @@ import (
 	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
 	"os/exec"
-	"paw/internal/loop"
-	"paw/internal/session"
+	"paw/internal/runtime/loop"
+	"paw/internal/storage/session"
 	"strings"
 	"time"
 )

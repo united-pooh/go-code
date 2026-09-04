@@ -10,7 +10,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
-	selecttool "paw/internal/tool/select"
+	selecttool "paw/internal/capability/tool/select"
 )
 
 func selectionRequest(id string, mode selecttool.Mode) selecttool.Request {

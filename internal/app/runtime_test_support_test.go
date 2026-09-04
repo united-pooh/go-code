@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"paw/internal/mcp"
+	"paw/internal/capability/mcp"
 	"paw/internal/message"
 )
 

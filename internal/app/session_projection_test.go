@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"paw/internal/message"
-	"paw/internal/session"
+	"paw/internal/storage/session"
 )
 
 func TestSessionServiceListSnapshotCreateForkDoNotActivateHost(t *testing.T) {

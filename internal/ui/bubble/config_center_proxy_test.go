@@ -5,7 +5,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"paw/internal/model"
+	"paw/internal/capability/model"
 )
 
 func teaKeyEnter() tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyEnter} }

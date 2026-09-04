@@ -10,8 +10,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
-	"paw/internal/settings"
-	"paw/internal/task"
+	"paw/internal/platform/settings"
+	"paw/internal/runtime/task"
 	"paw/internal/ui"
 )
 

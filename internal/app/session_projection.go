@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"paw/internal/message"
-	"paw/internal/session"
+	"paw/internal/storage/session"
 )
 
 type SessionSummary struct {

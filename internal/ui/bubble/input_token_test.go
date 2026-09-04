@@ -10,7 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
 
-	"paw/internal/skill"
+	"paw/internal/capability/skill"
 )
 
 func TestCommandCompletionCreatesAtomicTokenProjection(t *testing.T) {

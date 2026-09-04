@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"paw/internal/settings"
-	"paw/internal/theme"
+	"paw/internal/platform/settings"
+	"paw/internal/ui/theme"
 )
 
 func newThemedTestModel(t *testing.T, id theme.ThemeID) appModel {

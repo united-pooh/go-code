@@ -3,7 +3,7 @@ package bubble
 import (
 	"fmt"
 
-	"paw/internal/session"
+	"paw/internal/storage/session"
 )
 
 func formatTurnSeconds(seconds int64) string {

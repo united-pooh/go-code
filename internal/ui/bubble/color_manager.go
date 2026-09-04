@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"paw/internal/theme"
+	"paw/internal/ui/theme"
 )
 
 // colorRole 表示一个可复用的颜色语义角色。

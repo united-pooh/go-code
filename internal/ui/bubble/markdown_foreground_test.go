@@ -7,7 +7,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
-	"paw/internal/theme"
+	"paw/internal/ui/theme"
 )
 
 // foregroundLostInLine 用 SGR 状态机模拟终端：若 reset（\x1b[0m）之后出现

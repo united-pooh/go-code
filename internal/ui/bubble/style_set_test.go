@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"paw/internal/theme"
+	"paw/internal/ui/theme"
 )
 
 func TestNewStyleSetUsesThemePalette(t *testing.T) {

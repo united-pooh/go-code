@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	selecttool "paw/internal/tool/select"
+	selecttool "paw/internal/capability/tool/select"
 )
 
 type selectToolPresentation struct {

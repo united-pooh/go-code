@@ -10,7 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
 
-	"paw/internal/settings"
+	"paw/internal/platform/settings"
 )
 
 // openGeneralCenter 打开配置中心并落到 General 扁平列表（首页第 0 项）。

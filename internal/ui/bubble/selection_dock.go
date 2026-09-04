@@ -7,7 +7,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	selecttool "paw/internal/tool/select"
+	selecttool "paw/internal/capability/tool/select"
 )
 
 type selectionBrokerEventMsg struct {

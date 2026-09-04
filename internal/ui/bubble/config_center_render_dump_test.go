@@ -6,7 +6,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"paw/internal/settings"
+	"paw/internal/platform/settings"
 )
 
 // TestRenderDumpGeneral 在 -v 模式打印宽屏 General 页，供人工检查列起点、

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"paw/internal/session"
+	"paw/internal/storage/session"
 )
 
 type SessionService struct {

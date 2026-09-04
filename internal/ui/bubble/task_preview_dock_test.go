@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"paw/internal/task"
+	"paw/internal/runtime/task"
 )
 
 func TestDockedTaskPreviewKeepsActivityOpen(t *testing.T) {
