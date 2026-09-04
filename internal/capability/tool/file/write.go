@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	coretool "paw/internal/tool"
+	coretool "paw/internal/capability/tool"
 	"strings"
 )
 

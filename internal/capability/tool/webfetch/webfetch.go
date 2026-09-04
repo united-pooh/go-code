@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"paw/internal/tool"
+	"paw/internal/capability/tool"
 )
 
 const (

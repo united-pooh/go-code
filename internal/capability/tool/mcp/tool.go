@@ -6,7 +6,7 @@ import (
 	"errors"
 	"strings"
 
-	coremcp "paw/internal/mcp"
+	coremcp "paw/internal/capability/mcp"
 )
 
 // Tool adapts one model-facing MCP capability to Paw's normal tool

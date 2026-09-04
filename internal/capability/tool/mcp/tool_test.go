@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	coremcp "paw/internal/mcp"
+	coremcp "paw/internal/capability/mcp"
 	"testing"
 )
 

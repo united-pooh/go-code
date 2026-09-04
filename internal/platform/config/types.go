@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"paw/internal/model"
+	"paw/internal/capability/model"
 )
 
 const SchemaVersion = 2

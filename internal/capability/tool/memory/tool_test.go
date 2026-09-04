@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"paw/internal/session"
+	"paw/internal/storage/session"
 )
 
 func inputFor(content string) []byte {

@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"paw/internal/model"
+	"paw/internal/capability/model"
 )
 
 func isolatedPaths(t *testing.T, workspace bool) Paths {

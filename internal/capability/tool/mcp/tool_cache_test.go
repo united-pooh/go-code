@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	coremcp "paw/internal/mcp"
+	coremcp "paw/internal/capability/mcp"
 )
 
 func TestToolSchemaIsStableAndReturnedAsCopy(t *testing.T) {

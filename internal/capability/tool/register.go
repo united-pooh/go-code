@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"paw/internal/model"
+	"paw/internal/capability/model"
 )
 
 type Registry struct {

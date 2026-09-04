@@ -3,7 +3,7 @@ package config
 import (
 	"strings"
 
-	"paw/internal/model"
+	"paw/internal/capability/model"
 )
 
 type Preset struct {

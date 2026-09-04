@@ -19,7 +19,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
-	"paw/internal/model"
+	"paw/internal/capability/model"
 )
 
 type Options struct {

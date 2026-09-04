@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"paw/internal/model"
+	"paw/internal/capability/model"
 )
 
 // proxyObservingDiscoverer 记录最后一次收到的生效代理，验证 discoverProvider

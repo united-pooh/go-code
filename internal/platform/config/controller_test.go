@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"paw/internal/model"
+	"paw/internal/capability/model"
 )
 
 type fakeModelRuntime struct {

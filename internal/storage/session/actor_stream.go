@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"paw/internal/es"
+	"paw/internal/storage/es"
 )
 
 // AppendEnvelopes appends runtime or domain control events to the same
