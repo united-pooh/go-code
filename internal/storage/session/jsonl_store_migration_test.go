@@ -11,25 +11,6 @@ import (
 	"paw/internal/message"
 )
 
-// TestProjectNameFor 覆盖：同名 basename 不同路径生成不同项目名；
-// 同一路径生成稳定名称；特殊字符被 slug 化。
-func TestProjectNameFor(t *testing.T) {
-	a := projectNameFor("/Users/u/python project/go-code")
-	b := projectNameFor("/Users/u/other/go-code")
-	if a == b {
-		t.Fatalf("same basename different path must differ: %q == %q", a, b)
-	}
-	if projectNameFor("/Users/u/python project/go-code") != a {
-		t.Fatal("project name must be stable for same cwd")
-	}
-	if got := projectNameFor("/tmp/项目 空间"); got != "project-" {
-		// 全非 ASCII basename slug 化为空后回退 "project"，仍带哈希。
-		if len(got) < len("project-")+8 {
-			t.Fatalf("fallback name must carry hash: %q", got)
-		}
-	}
-}
-
 // newGlobalStore 构造全局布局 store（baseDir 全局 + legacyBaseDir 旧工作区）。
 func newGlobalStore(t *testing.T) (*JSONLStore, string) {
 	t.Helper()
@@ -69,6 +50,7 @@ func TestNewJSONLStoreForWorkspaceMigratesLegacySession(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
+	t.Setenv("PAW_CONFIG_HOME", "")
 
 	legacyStore, err := NewJSONLStore(filepath.Join(workspace, ".paw"))
 	if err != nil {

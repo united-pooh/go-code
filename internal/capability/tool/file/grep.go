@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -55,7 +54,7 @@ func (t *GrepTool) Run(ctx context.Context, input json.RawMessage) (string, erro
 		return "", fmt.Errorf("pattern is required")
 	}
 
-	searchRoot, err := resolvePathWithinRoots(t.Root, in.Path, t.ReadRoots)
+	searchRoot, policy, err := resolveReadPathWithinRoots(t.Root, in.Path, t.ReadRoots)
 	if err != nil {
 		return "", err
 	}
@@ -71,7 +70,10 @@ func (t *GrepTool) Run(ctx context.Context, input json.RawMessage) (string, erro
 	}
 
 	var results []string
-	err = walkSearchFiles(searchRoot, func(path string) error {
+	err = walkReadPaths(ctx, searchRoot, policy, func(path string, entry fs.DirEntry) error {
+		if entry.IsDir() {
+			return nil
+		}
 		matches, err := grepFile(ctx, t.Root, path, matcher, maxResults-len(results))
 		if err != nil {
 			return err
@@ -108,26 +110,6 @@ func buildLineMatcher(pattern string, literal bool) (lineMatcher, error) {
 }
 
 var errGrepLimitReached = fmt.Errorf("grep max results reached")
-
-func walkSearchFiles(root string, visit func(path string) error) error {
-	info, err := os.Stat(root)
-	if err != nil {
-		return err
-	}
-	if !info.IsDir() {
-		return visit(root)
-	}
-
-	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-		return visit(path)
-	})
-}
 
 func grepFile(ctx context.Context, workspaceRoot, path string, matcher lineMatcher, limit int) ([]string, error) {
 	if limit <= 0 {

@@ -64,7 +64,18 @@ func (s *JSONLStore) ReadAttachment(ctx context.Context, reference string) (stri
 	if err != nil {
 		return "", nil, err
 	}
-	data, err := os.ReadFile(target)
+	relative, err := filepath.Rel(s.baseDir, target)
+	if err != nil {
+		return "", nil, err
+	}
+	var data []byte
+	for _, root := range s.storageRoots() {
+		target = filepath.Join(root, relative)
+		data, err = os.ReadFile(target)
+		if !os.IsNotExist(err) {
+			break
+		}
+	}
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", nil, fmt.Errorf("附件不存在: %s", reference)

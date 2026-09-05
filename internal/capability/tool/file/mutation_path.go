@@ -31,6 +31,14 @@ func resolveMutationPath(root, target string, allowMissing bool) (string, bool, 
 		return "", false, err
 	}
 
+	policy, err := newGlobalHomePolicy(nil)
+	if err != nil {
+		return "", false, err
+	}
+	if err := policy.check(resolved); err != nil {
+		return "", false, err
+	}
+
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
 		return "", false, err

@@ -133,9 +133,20 @@ func (t *ReadTool) PermissionReadTarget(input json.RawMessage) (string, bool, er
 	if err != nil {
 		return "", false, err
 	}
+	policy, err := newGlobalHomePolicy(t.ReadRoots)
+	if err != nil {
+		return "", false, err
+	}
+	readable, _, err := policy.access(target)
+	if err != nil {
+		return "", false, err
+	}
 	target, err = filepath.EvalSymlinks(filepath.Clean(target))
 	if err != nil {
 		return "", false, err
+	}
+	if !readable {
+		return target, true, nil
 	}
 	allowed := append([]string{t.Root}, t.ReadRoots...)
 	for _, root := range allowed {
@@ -181,7 +192,7 @@ func (t *ReadTool) resolveReadPath(filePath string) (string, error) {
 			target = filepath.Clean(target)
 		}
 	} else {
-		target, err = resolvePathWithinRoots(t.Root, filePath, t.ReadRoots)
+		target, _, err = resolveReadPathWithinRoots(t.Root, filePath, t.ReadRoots)
 	}
 	if err != nil {
 		return "", err

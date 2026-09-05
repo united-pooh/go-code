@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -45,7 +46,7 @@ func (t *LSTool) Run(ctx context.Context, input json.RawMessage) (string, error)
 		}
 	}
 
-	target, err := resolvePathWithinRoots(t.Root, in.Path, t.ReadRoots)
+	target, policy, err := resolveReadPathWithinRoots(t.Root, in.Path, t.ReadRoots)
 	if err != nil {
 		return "", err
 	}
@@ -57,6 +58,13 @@ func (t *LSTool) Run(ctx context.Context, input json.RawMessage) (string, error)
 
 	names := make([]string, 0, len(entries))
 	for _, entry := range entries {
+		readable, _, err := policy.access(filepath.Join(target, entry.Name()))
+		if err != nil {
+			return "", err
+		}
+		if !readable {
+			continue
+		}
 		name := entry.Name()
 		if entry.IsDir() {
 			name += "/"

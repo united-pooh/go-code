@@ -53,7 +53,7 @@ func (t *GlobTool) Run(ctx context.Context, input json.RawMessage) (string, erro
 		return "", fmt.Errorf("pattern is required")
 	}
 
-	searchRoot, err := resolvePathWithinRoots(t.Root, in.Path, t.ReadRoots)
+	searchRoot, policy, err := resolveReadPathWithinRoots(t.Root, in.Path, t.ReadRoots)
 	if err != nil {
 		return "", err
 	}
@@ -69,13 +69,7 @@ func (t *GlobTool) Run(ctx context.Context, input json.RawMessage) (string, erro
 	}
 
 	matches := make([]string, 0, min(maxResults, 16))
-	err = filepath.WalkDir(searchRoot, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
+	err = walkReadPaths(ctx, searchRoot, policy, func(path string, d fs.DirEntry) error {
 		if path == searchRoot {
 			return nil
 		}
