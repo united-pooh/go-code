@@ -1099,8 +1099,8 @@ func TestConsumeResponsesStreamIdleTimeoutIsRetryable(t *testing.T) {
 	if !strings.Contains(result.err.Error(), "无任何数据") {
 		t.Fatalf("err = %v, want idle timeout message", result.err)
 	}
-	if result.madeProgress {
-		t.Fatal("madeProgress = true, want false for stalled stream (retry allowed)")
+	if len(events) != 0 {
+		t.Fatal("stalled stream published events")
 	}
 	if !isRetryableResponsesStreamError(context.Background(), result.err) {
 		t.Fatalf("isRetryableResponsesStreamError() = false for %v", result.err)
