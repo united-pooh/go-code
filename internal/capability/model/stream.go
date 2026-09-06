@@ -47,16 +47,17 @@ type AssistantPartEvent struct {
 // 4) Done=true：当前协议响应结束
 // 5) Err 非空：流中出现错误
 type StreamEvent struct {
-	AssistantPart *AssistantPartEvent
-	GeneratedBy   *message.MessageOrigin
-	Delta         string
-	Thinking      string
-	ToolCalls     []message.ToolCall
-	ProviderData  json.RawMessage
-	Done          bool
-	FinishReason  FinishReason
-	Err           error
-	Usage         *Usage
+	RequestStartID string
+	AssistantPart  *AssistantPartEvent
+	GeneratedBy    *message.MessageOrigin
+	Delta          string
+	Thinking       string
+	ToolCalls      []message.ToolCall
+	ProviderData   json.RawMessage
+	Done           bool
+	FinishReason   FinishReason
+	Err            error
+	Usage          *Usage
 }
 
 // FinishReason is the typed Chat Completions finish_reason value surfaced to
@@ -105,7 +106,7 @@ type toolCallDelta struct {
 // - 处理 Delta
 // - 处理 Err
 // - 收到 Done 后结束当前轮次
-func (c *Client) StreamMessage(ctx context.Context, messages []message.Message, tools []ToolDefinition) (<-chan StreamEvent, error) {
+func (c *Client) StreamMessage(ctx context.Context, messages []message.Message, tools []ToolDefinition) (result <-chan StreamEvent, err error) {
 	// 模型接口要求至少有一条输入消息。
 	if len(messages) == 0 {
 		return nil, fmt.Errorf("messages 不能为空")
@@ -118,6 +119,7 @@ func (c *Client) StreamMessage(ctx context.Context, messages []message.Message, 
 	messages, _ = RepairToolCallPairs(messages)
 
 	cfg := c.CurrentModelConfig()
+	requestID := usageRequestID(ctx)
 	transport := "openai-compatible"
 	if shouldUseResponsesAPI(cfg) {
 		transport = "openai-responses"
@@ -125,6 +127,14 @@ func (c *Client) StreamMessage(ctx context.Context, messages []message.Message, 
 		transport = "anthropic-compatible"
 	}
 	origin := messageOriginForConfig(cfg, transport)
+	ctx, trace := c.startRequestTrace(ctx, cfg, requestID, transport, messages)
+	defer func() {
+		if err != nil {
+			trace.finish(requestEndStatus(err))
+		} else {
+			result = trace.wrap(ctx, result)
+		}
+	}()
 	adapter := SelectModelAdapter(cfg)
 	prepared, err := c.prepareTools(adapter, tools)
 	if err != nil {
@@ -136,25 +146,26 @@ func (c *Client) StreamMessage(ctx context.Context, messages []message.Message, 
 			if err != nil {
 				return nil, err
 			}
-			return wrapWithOrigin(adaptPreparedToolEvents(ctx, events, prepared), origin), nil
+			return wrapWithOrigin(ctx, adaptPreparedToolEvents(ctx, events, prepared), origin, requestID), nil
 		}
 		events, err := c.streamResponsesMessage(ctx, cfg, messages, prepared)
 		if err != nil {
 			return nil, err
 		}
-		return wrapWithOrigin(adaptPreparedToolEvents(ctx, events, prepared), origin), nil
+		return wrapWithOrigin(ctx, adaptPreparedToolEvents(ctx, events, prepared), origin, requestID), nil
 	}
 	if !cfg.Stream {
+		origin = messageOriginForConfig(cfg, "openai-compatible")
 		events, err := c.nonStreamingOpenAIMessage(ctx, cfg, adapter, messages, prepared)
 		if err != nil {
 			return nil, err
 		}
-		return wrapWithOrigin(adaptPreparedToolEvents(ctx, events, prepared), origin), nil
+		return wrapWithOrigin(ctx, adaptPreparedToolEvents(ctx, events, prepared), origin, requestID), nil
 	}
 	if shouldAttemptAnthropicStream(cfg) {
 		events, err := c.streamAnthropicMessage(ctx, cfg, messages, tools)
 		if err == nil {
-			return wrapWithOrigin(events, origin), nil
+			return wrapWithOrigin(ctx, events, origin, requestID), nil
 		}
 		var providerErr *ProviderHTTPError
 		if errors.As(err, &providerErr) && providerErr.StatusCode != http.StatusNotFound && providerErr.StatusCode != http.StatusMethodNotAllowed {
@@ -162,11 +173,12 @@ func (c *Client) StreamMessage(ctx context.Context, messages []message.Message, 
 		}
 	}
 
+	origin = messageOriginForConfig(cfg, "openai-compatible")
 	events, err := c.streamOpenAIMessage(ctx, cfg, adapter, messages, prepared)
 	if err != nil {
 		return nil, err
 	}
-	return wrapWithOrigin(adaptPreparedToolEvents(ctx, events, prepared), origin), nil
+	return wrapWithOrigin(ctx, adaptPreparedToolEvents(ctx, events, prepared), origin, requestID), nil
 }
 
 func messageOriginForConfig(cfg Config, transport string) *message.MessageOrigin {
@@ -179,13 +191,26 @@ func messageOriginForConfig(cfg Config, transport string) *message.MessageOrigin
 	}
 }
 
-func wrapWithOrigin(events <-chan StreamEvent, origin *message.MessageOrigin) <-chan StreamEvent {
+func wrapWithOrigin(ctx context.Context, events <-chan StreamEvent, origin *message.MessageOrigin, requestID string) <-chan StreamEvent {
 	out := make(chan StreamEvent)
 	go func() {
 		defer close(out)
-		out <- StreamEvent{GeneratedBy: origin}
+		if !sendStreamEvent(ctx, out, StreamEvent{GeneratedBy: origin}) {
+			return
+		}
 		for ev := range events {
-			out <- ev
+			if ev.Usage != nil {
+				usage := *ev.Usage
+				usage.RequestID = requestID
+				usage.Protocol = UsageProtocolOpenAI
+				if origin != nil && origin.Transport == "anthropic-compatible" {
+					usage.Protocol = UsageProtocolAnthropic
+				}
+				ev.Usage = &usage
+			}
+			if !sendStreamEvent(ctx, out, ev) {
+				return
+			}
 		}
 	}()
 	return out
@@ -245,6 +270,7 @@ func (c *Client) nonStreamingOpenAIMessage(ctx context.Context, cfg Config, adap
 	if err := json.Unmarshal(respBytes, &parsed); err != nil {
 		return nil, fmt.Errorf("解析响应 JSON 失败: %w", err)
 	}
+	observeProviderUsage(ctx, parsed.Usage)
 	if parsed.Error != nil {
 		return nil, fmt.Errorf("模型接口返回错误: %s", parsed.Error.Message)
 	}
@@ -506,28 +532,30 @@ type streamIdleWatchdog struct {
 	body    io.ReadCloser
 	timeout time.Duration
 
-	mu       sync.Mutex
-	timer    *time.Timer
-	timedOut bool
-	closed   bool
+	mu          sync.Mutex
+	timer       *time.Timer
+	deadline    time.Time
+	stopContext func() bool
+	timedOut    bool
+	closed      bool
 }
 
 func newStreamIdleWatchdog(ctx context.Context, body io.ReadCloser, timeout time.Duration) *streamIdleWatchdog {
 	watcher := &streamIdleWatchdog{body: body, timeout: timeout}
+	watcher.mu.Lock()
 	if timeout > 0 {
+		watcher.deadline = time.Now().Add(timeout)
 		watcher.timer = time.AfterFunc(timeout, watcher.expire)
 	}
 	if ctx != nil {
-		context.AfterFunc(ctx, func() { _ = watcher.Close() })
+		watcher.stopContext = context.AfterFunc(ctx, func() { _ = watcher.Close() })
 	}
+	watcher.mu.Unlock()
 	return watcher
 }
 
 func (w *streamIdleWatchdog) expire() {
-	w.mu.Lock()
-	w.timedOut = true
-	w.mu.Unlock()
-	_ = w.body.Close()
+	_ = w.finish(true)
 }
 
 func (w *streamIdleWatchdog) Read(p []byte) (int, error) {
@@ -541,22 +569,33 @@ func (w *streamIdleWatchdog) Read(p []byte) (int, error) {
 func (w *streamIdleWatchdog) kick() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if w.timer != nil {
+	if !w.closed && w.timer != nil {
+		w.deadline = time.Now().Add(w.timeout)
 		w.timer.Reset(w.timeout)
 	}
 }
 
 func (w *streamIdleWatchdog) Close() error {
+	return w.finish(false)
+}
+
+func (w *streamIdleWatchdog) finish(timedOut bool) error {
 	w.mu.Lock()
-	if w.closed {
+	if w.closed || (timedOut && (w.deadline.IsZero() || time.Now().Before(w.deadline))) {
 		w.mu.Unlock()
 		return nil
 	}
 	w.closed = true
+	w.timedOut = timedOut
 	if w.timer != nil {
 		w.timer.Stop()
 	}
+	stopContext := w.stopContext
+	w.stopContext = nil
 	w.mu.Unlock()
+	if stopContext != nil {
+		stopContext()
+	}
 	return w.body.Close()
 }
 
@@ -711,6 +750,11 @@ func (c *Client) consumeStream(ctx context.Context, resp *http.Response, events 
 // emitStreamEvent 在 ctx 取消时主动放弃发送，避免 goroutine 卡在 channel send 上，
 // 从而保证 resp.Body 的 defer Close 可以执行。
 func emitStreamEvent(ctx context.Context, events chan<- StreamEvent, ev StreamEvent) bool {
+	observeProviderUsage(ctx, ev.Usage)
+	return sendStreamEvent(ctx, events, ev)
+}
+
+func sendStreamEvent(ctx context.Context, events chan<- StreamEvent, ev StreamEvent) bool {
 	select {
 	case events <- ev:
 		return true

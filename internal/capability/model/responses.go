@@ -1,12 +1,10 @@
 package model
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -125,6 +123,7 @@ type responsesTool struct {
 // responsesAPIResponse 的 Output 保留为 raw items，作为权威完成快照，
 // 由 completedResponsesEvent 统一验证并生成最终 StreamEvent。
 type responsesAPIResponse struct {
+	ID     string            `json:"id,omitempty"`
 	Status string            `json:"status,omitempty"`
 	Output []json.RawMessage `json:"output"`
 	Usage  *Usage            `json:"usage,omitempty"`
@@ -165,6 +164,31 @@ type responsesStreamEvent struct {
 	Error       *responsesError       `json:"error,omitempty"`
 }
 
+func observeResponsesResponse(ctx context.Context, response *responsesAPIResponse, eventType string) {
+	responseID, status := "", ""
+	if response != nil {
+		responseID, status = response.ID, response.Status
+	}
+	switch eventType {
+	case "response.failed", "error":
+		status = "failed"
+	case "response.incomplete":
+		status = "incomplete"
+	case "response.completed":
+		switch status {
+		case "":
+			status = "completed"
+		case "completed", "failed", "incomplete", "canceled":
+		default:
+			status = "incomplete"
+		}
+	}
+	if response != nil && response.Error != nil && status != "incomplete" && status != "canceled" {
+		status = "failed"
+	}
+	observeProviderResponse(ctx, responseID, status)
+}
+
 func shouldUseResponsesAPI(cfg Config) bool {
 	transport := strings.ToLower(strings.TrimSpace(cfg.Transport))
 	if strings.Contains(transport, "response") {
@@ -177,7 +201,7 @@ func shouldUseResponsesAPI(cfg Config) bool {
 	return strings.HasSuffix(path, "/responses")
 }
 
-func responsesReasoningSummary(view responsesOutputItemView) string {
+func responsesReasoningSummary(view responsesOutputItemView, raw bool) string {
 	var structured []struct {
 		Type string `json:"type"`
 		Text string `json:"text,omitempty"`
@@ -188,29 +212,21 @@ func responsesReasoningSummary(view responsesOutputItemView) string {
 			if summary.Type != "summary_text" {
 				continue
 			}
-			if text := strings.TrimSpace(summary.Text); text != "" {
-				parts = append(parts, text)
-			}
+			parts = append(parts, summary.Text)
 		}
 		if len(parts) > 0 {
-			return strings.Join(parts, "\n\n")
+			return joinResponsesReasoning(parts, raw)
 		}
 	}
 	var summaries []string
 	if json.Unmarshal(view.Summary, &summaries) != nil {
 		return ""
 	}
-	parts := make([]string, 0, len(summaries))
-	for _, summary := range summaries {
-		if text := strings.TrimSpace(summary); text != "" {
-			parts = append(parts, text)
-		}
-	}
-	return strings.Join(parts, "\n\n")
+	return joinResponsesReasoning(summaries, raw)
 }
 
-func responsesReasoningText(view responsesOutputItemView) string {
-	if summary := responsesReasoningSummary(view); summary != "" {
+func responsesReasoningText(view responsesOutputItemView, raw bool) string {
+	if summary := responsesReasoningSummary(view, raw); summary != "" {
 		return summary
 	}
 	parts := make([]string, 0, len(view.Content))
@@ -218,11 +234,22 @@ func responsesReasoningText(view responsesOutputItemView) string {
 		if content.Type != "reasoning_text" {
 			continue
 		}
-		if text := strings.TrimSpace(content.Text); text != "" {
-			parts = append(parts, text)
+		parts = append(parts, content.Text)
+	}
+	return joinResponsesReasoning(parts, raw)
+}
+
+func joinResponsesReasoning(parts []string, raw bool) string {
+	if raw {
+		return strings.Join(parts, "")
+	}
+	formatted := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if text := strings.TrimSpace(part); text != "" {
+			formatted = append(formatted, text)
 		}
 	}
-	return strings.Join(parts, "\n\n")
+	return strings.Join(formatted, "\n\n")
 }
 
 func isGPTResponsesConfig(cfg Config) bool {
@@ -543,6 +570,8 @@ func (c *Client) runResponsesMessage(ctx context.Context, cfg Config, messages [
 	if err := json.Unmarshal(data, &parsed); err != nil {
 		return "", fmt.Errorf("解析 Responses JSON 失败: %w", err)
 	}
+	observeResponsesResponse(ctx, &parsed, "")
+	observeProviderUsage(ctx, parsed.Usage)
 	if parsed.Error != nil {
 		return "", fmt.Errorf("模型接口返回错误: %s", parsed.Error.Message)
 	}
@@ -566,99 +595,6 @@ func (c *Client) runResponsesMessage(ctx context.Context, cfg Config, messages [
 		return "", fmt.Errorf("模型接口返回了空内容")
 	}
 	return content, nil
-}
-
-func (c *Client) streamResponsesMessage(ctx context.Context, cfg Config, messages []message.Message, tools PreparedToolSet) (<-chan StreamEvent, error) {
-	reqBody, err := buildResponsesRequestForAdapter(cfg, SelectModelAdapter(cfg), messages, tools, true)
-	if err != nil {
-		return nil, fmt.Errorf("构造 OpenAI Responses 请求失败: %w", err)
-	}
-	bodyBytes, err := MarshalRequestBody(reqBody, effectiveResponsesExtraRequestBody(cfg))
-	if err != nil {
-		return nil, fmt.Errorf("序列化请求体失败: %w", err)
-	}
-
-	requestAttempts := 0
-	buildRequest := func() (*http.Request, error) {
-		requestAttempts++
-		req, buildErr := http.NewRequestWithContext(ctx, http.MethodPost, cfg.APIBaseURL+cfg.APIPath, bytes.NewReader(bodyBytes))
-		if buildErr != nil {
-			return nil, fmt.Errorf("创建 HTTP 请求失败: %w", buildErr)
-		}
-		c.setRequestHeadersForConfig(req, cfg)
-		return req, nil
-	}
-	initialResp, err := c.doRequestWithRetry(ctx, cfg, true, buildRequest)
-	if err != nil {
-		return nil, fmt.Errorf("调用模型接口失败: %w", err)
-	}
-	if initialResp.StatusCode < 200 || initialResp.StatusCode >= 300 {
-		return nil, providerHTTPErrorFromResponse(initialResp, "模型接口")
-	}
-
-	events := make(chan StreamEvent)
-	go func() {
-		defer close(events)
-		attempts := cfg.RetryCount + 2 - requestAttempts
-		if attempts < 1 {
-			attempts = 1
-		}
-		client := c.httpClientForConfig(cfg, true)
-		for attempt := 0; attempt < attempts; attempt++ {
-			resp := initialResp
-			var requestErr error
-			if attempt > 0 {
-				var req *http.Request
-				req, requestErr = buildRequest()
-				if requestErr == nil {
-					resp, requestErr = client.Do(req)
-				}
-			}
-			if requestErr != nil {
-				if resp != nil && resp.Body != nil {
-					_ = resp.Body.Close()
-				}
-				if attempt < attempts-1 && isRetryableRequestError(ctx, requestErr) {
-					if waitErr := waitForRequestRetry(ctx, attempt); waitErr == nil {
-						continue
-					} else {
-						requestErr = waitErr
-					}
-				}
-				_ = emitStreamEvent(ctx, events, StreamEvent{Err: fmt.Errorf("调用模型接口失败: %w", requestErr)})
-				return
-			}
-			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-				providerErr := providerHTTPErrorFromResponse(resp, "模型接口")
-				if attempt < attempts-1 && isRetryableHTTPStatus(providerErr.StatusCode) {
-					if waitErr := waitForRequestRetryAfter(ctx, attempt, providerErr.RetryAfter); waitErr == nil {
-						continue
-					} else {
-						_ = emitStreamEvent(ctx, events, StreamEvent{Err: waitErr})
-						return
-					}
-				}
-				_ = emitStreamEvent(ctx, events, StreamEvent{Err: providerErr})
-				return
-			}
-
-			result := c.consumeResponsesStream(ctx, resp, events, streamIdleTimeout(cfg))
-			if result.err == nil {
-				return
-			}
-			if attempt < attempts-1 && !result.madeProgress && isRetryableResponsesStreamError(ctx, result.err) {
-				if waitErr := waitForRequestRetryAfter(ctx, attempt, result.retryAfter); waitErr == nil {
-					continue
-				} else {
-					_ = emitStreamEvent(ctx, events, StreamEvent{Err: waitErr})
-					return
-				}
-			}
-			_ = emitStreamEvent(ctx, events, StreamEvent{Err: result.err})
-			return
-		}
-	}()
-	return events, nil
 }
 
 func (c *Client) nonStreamingResponsesMessage(ctx context.Context, cfg Config, messages []message.Message, tools PreparedToolSet) (<-chan StreamEvent, error) {
@@ -693,13 +629,15 @@ func (c *Client) nonStreamingResponsesMessage(ctx context.Context, cfg Config, m
 	if err := json.Unmarshal(data, &parsed); err != nil {
 		return nil, fmt.Errorf("解析 Responses JSON 失败: %w", err)
 	}
+	observeResponsesResponse(ctx, &parsed, "")
+	observeProviderUsage(ctx, parsed.Usage)
 	if parsed.Error != nil {
 		return nil, fmt.Errorf("模型接口返回错误: %s", parsed.Error.Message)
 	}
 	if parsed.Status != "" && parsed.Status != "completed" {
 		return nil, fmt.Errorf("Responses API 响应未完成 (status=%s)", parsed.Status)
 	}
-	event, err := completedResponsesEvent(parsed.Output, parsed.Usage)
+	event, err := completedResponsesEvent(parsed.Output, parsed.Usage, false)
 	if err != nil {
 		return nil, err
 	}
@@ -724,14 +662,9 @@ func (c *Client) nonStreamingResponsesMessage(ctx context.Context, cfg Config, m
 	return events, nil
 }
 
-// completedResponsesEvent 从权威完成快照生成最终事件：
-//  1. 验证 raw output items；
-//  2. 提取所有 message item 文本；流式调用仅在没有文本 delta 时回退使用；
-//  3. 提取所有 function_call arguments；非法参数记录在对应 ToolCall，
-//     由 Runner 生成可重试错误结果，不影响其他调用；
-//  5. 编码 ProviderData；
-//  6. 返回 Done 事件。
-func completedResponsesEvent(output []json.RawMessage, usage *Usage) (StreamEvent, error) {
+// completedResponsesEvent 验证快照并将工具、ProviderData 与 Done 组成同一事件。
+// rawReasoning 保留原始拼接，避免展示格式影响已播放 delta 的字节级前缀校验。
+func completedResponsesEvent(output []json.RawMessage, usage *Usage, rawReasoning bool) (StreamEvent, error) {
 	if err := validateResponsesOutputItems(output); err != nil {
 		return StreamEvent{}, err
 	}
@@ -745,8 +678,8 @@ func completedResponsesEvent(output []json.RawMessage, usage *Usage) (StreamEven
 		}
 		switch view.Type {
 		case "reasoning":
-			if reasoning := responsesReasoningText(view); reasoning != "" {
-				if thinking.Len() > 0 {
+			if reasoning := responsesReasoningText(view, rawReasoning); reasoning != "" {
+				if !rawReasoning && thinking.Len() > 0 {
 					thinking.WriteString("\n\n")
 				}
 				thinking.WriteString(reasoning)
@@ -799,315 +732,9 @@ type activeResponseToolCall struct {
 	name   string
 }
 
-type responsesStreamFailure struct {
-	EventType string
-	Type      string
-	Code      string
-	Message   string
-	RequestID string
-	Retryable bool
-	cause     error
-}
-
-func (e *responsesStreamFailure) Error() string {
-	if e == nil {
-		return ""
-	}
-	message := strings.TrimSpace(e.Message)
-	if message == "" {
-		message = "Responses API 请求失败"
-	}
-	detail := message
-	if e.Code != "" {
-		detail += " (code=" + e.Code + ")"
-	}
-	if e.RequestID != "" {
-		detail += " (request_id=" + e.RequestID + ")"
-	}
-	return "模型接口返回错误: " + detail
-}
-
-func (e *responsesStreamFailure) Unwrap() error {
-	if e == nil {
-		return nil
-	}
-	return e.cause
-}
-
 type responsesStreamResult struct {
-	err          error
-	madeProgress bool
-	retryAfter   time.Duration
-}
-
-func responsesStreamRecoveryDelta(accumulated, completed string) string {
-	if accumulated == "" {
-		return completed
-	}
-	if completed == accumulated {
-		return ""
-	}
-	if strings.HasPrefix(completed, accumulated) {
-		return completed[len(accumulated):]
-	}
-	return completed
-}
-
-func isRetryableResponsesStreamError(ctx context.Context, err error) bool {
-	if err == nil || (ctx != nil && ctx.Err() != nil) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return false
-	}
-	var failure *responsesStreamFailure
-	if errors.As(err, &failure) {
-		return failure.Retryable
-	}
-	return isRetryableRequestError(ctx, err)
-}
-
-func responsesFailureFromEvent(event responsesStreamEvent, header http.Header) *responsesStreamFailure {
-	providerErr := event.Error
-	if providerErr == nil && event.Response != nil {
-		providerErr = event.Response.Error
-	}
-	failure := &responsesStreamFailure{
-		EventType: event.Type,
-		RequestID: providerRequestID(header),
-		Retryable: event.Type == "response.failed" || event.Type == "response.incomplete",
-	}
-	if providerErr != nil {
-		failure.Type = strings.TrimSpace(providerErr.Type)
-		failure.Code = strings.TrimSpace(providerErr.Code)
-		failure.Message = strings.TrimSpace(providerErr.Message)
-	}
-	// Request/auth/schema failures are deterministic and must not be replayed.
-	nonRetryable := strings.ToLower(failure.Type + " " + failure.Code)
-	for _, marker := range []string{"invalid", "authentication", "authorization", "permission", "not_found", "unsupported", "context_length", "rate_limit"} {
-		if strings.Contains(nonRetryable, marker) {
-			failure.Retryable = false
-			break
-		}
-	}
-	return failure
-}
-
-func splitResponsesSSEEvents(data []byte, atEOF bool) (advance int, token []byte, err error) {
-	lineStart := 0
-	for i := 0; i < len(data); i++ {
-		if data[i] != '\n' && data[i] != '\r' {
-			continue
-		}
-		lineEnd := i
-		if data[i] == '\r' && i+1 < len(data) && data[i+1] == '\n' {
-			i++
-		}
-		nextLine := i + 1
-		if lineEnd == lineStart {
-			return nextLine, data[:lineStart], nil
-		}
-		lineStart = nextLine
-	}
-	if atEOF && len(data) != 0 {
-		return len(data), data, nil
-	}
-	return 0, nil, nil
-}
-
-func responsesSSEPayload(block []byte) ([]byte, bool) {
-	lines := bytes.Split(block, []byte{'\n'})
-	dataLines := make([][]byte, 0, len(lines))
-	for _, line := range lines {
-		line = bytes.TrimSuffix(line, []byte{'\r'})
-		if len(line) == 0 || line[0] == ':' {
-			continue
-		}
-		field, value, found := bytes.Cut(line, []byte{':'})
-		if !found || !bytes.Equal(field, []byte("data")) {
-			continue
-		}
-		if len(value) != 0 && value[0] == ' ' {
-			value = value[1:]
-		}
-		dataLines = append(dataLines, value)
-	}
-	if len(dataLines) == 0 {
-		return nil, false
-	}
-	return bytes.Join(dataLines, []byte{'\n'}), true
-}
-
-func (c *Client) consumeResponsesStream(ctx context.Context, resp *http.Response, events chan<- StreamEvent, idleTimeout time.Duration) responsesStreamResult {
-	body := newStreamIdleWatchdog(ctx, resp.Body, idleTimeout)
-	defer func() {
-		_ = body.Close()
-	}()
-	result := responsesStreamResult{retryAfter: providerRetryAfter(resp.Header, time.Now())}
-
-	scanner := bufio.NewScanner(body)
-	scanner.Split(splitResponsesSSEEvents)
-	scanner.Buffer(make([]byte, 0, streamScannerInitialBufferBytes), streamScannerMaxTokenBytes)
-	active := make(map[int]*activeResponseToolCall)
-	var streamedText strings.Builder
-	var streamedThinking strings.Builder
-	sawOutputTextDelta := false
-	sawReasoningDelta := false
-	var decodeFailure *responsesStreamFailure
-
-	for scanner.Scan() {
-		payload, ok := responsesSSEPayload(scanner.Bytes())
-		if !ok {
-			continue
-		}
-		payload = bytes.TrimSpace(payload)
-		if len(payload) == 0 || bytes.Equal(payload, []byte("[DONE]")) {
-			continue
-		}
-		var event responsesStreamEvent
-		if err := json.Unmarshal(payload, &event); err != nil {
-			decodeFailure = &responsesStreamFailure{
-				EventType: "decode",
-				Message:   fmt.Sprintf("解析 Responses 流式数据失败（event_bytes=%d）: %v", len(payload), err),
-				RequestID: providerRequestID(resp.Header),
-				Retryable: true,
-				cause:     err,
-			}
-			continue
-		}
-		switch event.Type {
-		case "response.output_text.delta":
-			if event.Delta != "" {
-				result.madeProgress = true
-				if decodeFailure == nil {
-					streamedText.WriteString(event.Delta)
-					if !emitStreamEvent(ctx, events, StreamEvent{Delta: event.Delta}) {
-						result.err = ctx.Err()
-						return result
-					}
-					sawOutputTextDelta = true
-				}
-			}
-		case "response.reasoning_summary_text.delta", "response.reasoning.delta", "response.reasoning_text.delta":
-			// reasoning_summary_text.delta / reasoning.delta 是 OpenAI 官方事件；
-			// reasoning_text.delta 是 DeepSeek Responses API 的逐 token CoT 事件。
-			// 旧实现漏掉后者，DeepSeek 的全部思考 delta 被静默丢弃，只能从
-			// response.completed 一次性回放——表现为思考内容瞬间全量输出。
-			if event.Delta != "" {
-				result.madeProgress = true
-				if decodeFailure == nil {
-					streamedThinking.WriteString(event.Delta)
-					if !emitStreamEvent(ctx, events, StreamEvent{Thinking: event.Delta}) {
-						result.err = ctx.Err()
-						return result
-					}
-					sawReasoningDelta = true
-				}
-			}
-		case "response.reasoning_text.done":
-			// DeepSeek 的全量 CoT 兜底：仅在一条流式 delta 都没收到时回放全文，
-			// 避免与已播放的增量重复（received 时 completed 兜底会被抑制）。
-			if decodeFailure == nil && !sawReasoningDelta && event.Text != "" {
-				result.madeProgress = true
-				streamedThinking.WriteString(event.Text)
-				if !emitStreamEvent(ctx, events, StreamEvent{Thinking: event.Text}) {
-					result.err = ctx.Err()
-					return result
-				}
-				sawReasoningDelta = true
-			}
-		case "response.output_item.added":
-			if len(event.Item) != 0 {
-				result.madeProgress = true
-				call := &activeResponseToolCall{item: append(json.RawMessage(nil), event.Item...)}
-				var view responsesOutputItemView
-				if json.Unmarshal(event.Item, &view) == nil && view.Type == "function_call" {
-					call.id, call.callID, call.name = view.ID, view.CallID, view.Name
-					call.args.WriteString(view.Arguments)
-					active[event.OutputIndex] = call
-				}
-			}
-		case "response.function_call_arguments.delta":
-			result.madeProgress = true
-			call := active[event.OutputIndex]
-			if call == nil {
-				call = &activeResponseToolCall{id: event.ItemID, callID: event.CallID, name: event.Name}
-				active[event.OutputIndex] = call
-			} else {
-				if event.ItemID != "" {
-					call.id = event.ItemID
-				}
-				if event.CallID != "" {
-					call.callID = event.CallID
-				}
-				if event.Name != "" {
-					call.name = event.Name
-				}
-			}
-			call.args.WriteString(event.Delta)
-			if call.item == nil {
-				call.item = json.RawMessage(fmt.Sprintf(`{"type":"function_call","id":%q,"call_id":%q,"name":%q}`, call.id, call.callID, call.name))
-			}
-		case "response.output_item.done":
-			if len(event.Item) != 0 {
-				result.madeProgress = true
-				call := active[event.OutputIndex]
-				if call == nil {
-					call = &activeResponseToolCall{}
-					active[event.OutputIndex] = call
-				}
-				call.item = append(json.RawMessage(nil), event.Item...)
-			}
-		case "response.completed":
-			output := responsesRawOutputWithDeltas(active)
-			if event.Response != nil && len(event.Response.Output) != 0 {
-				output = mergeResponsesOutputWithDeltas(event.Response.Output, active)
-			}
-			var usage *Usage
-			if event.Response != nil {
-				usage = event.Response.Usage
-			}
-			finalEvent, err := completedResponsesEvent(output, usage)
-			if err != nil {
-				result.err = err
-				return result
-			}
-			if decodeFailure != nil {
-				finalEvent.Delta = responsesStreamRecoveryDelta(streamedText.String(), finalEvent.Delta)
-				finalEvent.Thinking = responsesStreamRecoveryDelta(streamedThinking.String(), finalEvent.Thinking)
-			} else {
-				if sawOutputTextDelta {
-					finalEvent.Delta = ""
-				}
-				if sawReasoningDelta {
-					finalEvent.Thinking = ""
-				}
-			}
-			if !emitFinalResponsesEvent(ctx, events, finalEvent) {
-				result.err = ctx.Err()
-				return result
-			}
-			return result
-		case "response.failed", "response.incomplete", "error":
-			result.err = responsesFailureFromEvent(event, resp.Header)
-			return result
-		}
-	}
-	if body.TimedOut() {
-		result.err = &responsesStreamFailure{EventType: "stream_idle", Message: fmt.Sprintf("模型流 %s 无任何数据，连接已中断（可能是 provider 网络抖动）", idleTimeout), RequestID: providerRequestID(resp.Header), Retryable: true}
-		return result
-	}
-	if err := scanner.Err(); err != nil {
-		if ctx != nil && ctx.Err() != nil {
-			result.err = ctx.Err()
-		} else {
-			result.err = &responsesStreamFailure{EventType: "stream_read", Message: "读取 Responses 流式响应失败", RequestID: providerRequestID(resp.Header), Retryable: true, cause: err}
-		}
-		return result
-	}
-	if decodeFailure != nil {
-		result.err = decodeFailure
-		return result
-	}
-	result.err = &responsesStreamFailure{EventType: "unexpected_eof", Message: "Responses stream ended before response.completed", RequestID: providerRequestID(resp.Header), Retryable: true}
-	return result
+	err        error
+	retryAfter time.Duration
 }
 
 func responsesRawOutputWithDeltas(active map[int]*activeResponseToolCall) []json.RawMessage {
@@ -1156,13 +783,6 @@ func responseItemWithArguments(raw json.RawMessage, arguments string) json.RawMe
 		return raw
 	}
 	return encoded
-}
-
-// emitFinalResponsesEvent 把权威完成事件作为单个原子事件投递。文本已通过
-// 流式 delta 投递时不再重放完成快照；usage、tool calls、provider data 与
-// Done 仍保持在同一完成事件上。
-func emitFinalResponsesEvent(ctx context.Context, events chan<- StreamEvent, ev StreamEvent) bool {
-	return emitStreamEvent(ctx, events, ev)
 }
 
 // responsesRawOutput 按 output_index 排序收集 raw output items。

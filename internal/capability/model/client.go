@@ -22,9 +22,10 @@ type Client struct {
 	// httpClient is an immutable transport template in production. Tests may
 	// replace its Transport; every request still clones it and applies timeout
 	// from the same captured Config snapshot.
-	httpClient *http.Client
-	mu         sync.RWMutex
-	cfg        Config
+	httpClient      *http.Client
+	mu              sync.RWMutex
+	cfg             Config
+	requestObserver func(RequestEvent)
 
 	toolCacheMu  sync.Mutex
 	toolCacheKey string
@@ -139,6 +140,9 @@ func isRetryableRequestError(ctx context.Context, err error) bool {
 	if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
 	}
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
 	var networkErr net.Error
 	return errors.As(err, &networkErr)
 }
@@ -206,6 +210,11 @@ func (c *Client) httpClientForConfig(cfg Config, stream bool) *http.Client {
 	if stream {
 		client.Timeout = 0
 	}
+	transport := client.Transport
+	if transport == nil {
+		transport = http.DefaultTransport
+	}
+	client.Transport = telemetryTransport{base: transport}
 	return client
 }
 

@@ -53,25 +53,33 @@ type ChatCompletionsResponse struct {
 }
 
 type Usage struct {
-	InputTokens              int          `json:"input_tokens"`
-	OutputTokens             int          `json:"output_tokens"`
-	CacheCreationInputTokens int          `json:"cache_creation_input_tokens"`
-	CacheReadInputTokens     int          `json:"cache_read_input_tokens"`
-	PromptTokens             int          `json:"prompt_tokens"`
-	CompletionTokens         int          `json:"completion_tokens"`
-	TotalTokens              int          `json:"total_tokens"`
-	PromptCacheHitTokens     int          `json:"prompt_cache_hit_tokens"`
-	PromptCacheMissTokens    int          `json:"prompt_cache_miss_tokens"`
-	PromptTokensDetails      TokenDetails `json:"prompt_tokens_details"`
-	InputTokensDetails       TokenDetails `json:"input_tokens_details"`
+	RequestID                string        `json:"paw_request_id,omitempty"`
+	Protocol                 UsageProtocol `json:"paw_usage_protocol,omitempty"`
+	PresentFields            uint64        `json:"paw_usage_fields"`
+	InputTokens              int           `json:"input_tokens"`
+	OutputTokens             int           `json:"output_tokens"`
+	CacheCreationInputTokens int           `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int           `json:"cache_read_input_tokens"`
+	PromptTokens             int           `json:"prompt_tokens"`
+	CompletionTokens         int           `json:"completion_tokens"`
+	TotalTokens              int           `json:"total_tokens"`
+	PromptCacheHitTokens     int           `json:"prompt_cache_hit_tokens"`
+	PromptCacheMissTokens    int           `json:"prompt_cache_miss_tokens"`
+	PromptTokensDetails      TokenDetails  `json:"prompt_tokens_details"`
+	InputTokensDetails       TokenDetails  `json:"input_tokens_details"`
+	OutputTokensDetails      TokenDetails  `json:"output_tokens_details"`
+	CompletionTokensDetails  TokenDetails  `json:"completion_tokens_details"`
 }
 
 type TokenDetails struct {
-	CachedTokens             int `json:"cached_tokens"`
-	CacheReadTokens          int `json:"cache_read_tokens"`
-	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
-	CacheCreationTokens      int `json:"cache_creation_tokens"`
-	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+	PresentFields            uint64 `json:"paw_usage_fields"`
+	CachedTokens             int    `json:"cached_tokens"`
+	CacheReadTokens          int    `json:"cache_read_tokens"`
+	CacheReadInputTokens     int    `json:"cache_read_input_tokens"`
+	CacheCreationTokens      int    `json:"cache_creation_tokens"`
+	CacheCreationInputTokens int    `json:"cache_creation_input_tokens"`
+	ReasoningTokens          int    `json:"reasoning_tokens"`
+	ThinkingTokens           int    `json:"thinking_tokens"`
 }
 
 func (u Usage) CacheHitTokens() int {
@@ -115,7 +123,7 @@ func (u Usage) CacheCreationTokens() int {
 	if u.InputTokensDetails.CacheCreationInputTokens != 0 {
 		return u.InputTokensDetails.CacheCreationInputTokens
 	}
-	return u.PromptCacheMissTokens
+	return 0
 }
 
 func (u Usage) PromptTokenCount() int {
@@ -133,6 +141,9 @@ func (u Usage) CompletionTokenCount() int {
 }
 
 func (u Usage) ContextTokenCount() int {
+	if u.Protocol != "" {
+		return u.Breakdown().Total()
+	}
 	if u.TotalTokens != 0 {
 		return u.TotalTokens
 	}

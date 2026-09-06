@@ -240,6 +240,16 @@ func (c *Client) consumeAnthropicStream(ctx context.Context, resp *http.Response
 			_ = emitStreamEvent(ctx, events, StreamEvent{Err: fmt.Errorf("Anthropic 流式接口返回错误: %s", chunk.Error.Message)})
 			return
 		}
+		if chunk.Message != nil && chunk.Message.Usage != nil {
+			if !emitStreamEvent(ctx, events, StreamEvent{Usage: chunk.Message.Usage}) {
+				return
+			}
+		}
+		if chunk.Usage != nil {
+			if !emitStreamEvent(ctx, events, StreamEvent{Usage: chunk.Usage}) {
+				return
+			}
+		}
 
 		// content_block_start: 记录类型，发出 part start
 		if chunk.ContentBlock != nil {
@@ -386,18 +396,6 @@ func (c *Client) consumeAnthropicStream(ctx context.Context, resp *http.Response
 				}
 			}
 		}
-
-		// Usage
-		if chunk.Message != nil && chunk.Message.Usage != nil {
-			if !emitStreamEvent(ctx, events, StreamEvent{Usage: chunk.Message.Usage}) {
-				return
-			}
-		}
-		if chunk.Usage != nil {
-			if !emitStreamEvent(ctx, events, StreamEvent{Usage: chunk.Usage}) {
-				return
-			}
-		}
 	}
 
 	if body.TimedOut() {
@@ -413,6 +411,7 @@ func (c *Client) consumeAnthropicStream(ctx context.Context, resp *http.Response
 		_ = emitStreamEvent(ctx, events, StreamEvent{Err: err})
 		return
 	}
+	observeProviderResponse(ctx, "", "incomplete")
 	_ = emitStreamEvent(ctx, events, StreamEvent{Done: true})
 }
 
