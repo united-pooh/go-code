@@ -200,7 +200,7 @@ async function resizeNearestSash(page: Page, panelId: string, delta: number): Pr
 }
 
 test('docks, tabs, resizes, persists, closes, restores, resets, and undoes', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/?view=debug');
   await expect(page.locator('.topbar-pipeline')).toBeVisible();
   await settleLayout(page);
   await dockToEdge(page, 'events', 'heatmap', 'left');
@@ -217,12 +217,14 @@ test('docks, tabs, resizes, persists, closes, restores, resets, and undoes', asy
   await page.getByLabel('浮动 Events').click();
   await expect(page.getByTestId('panel-events')).toHaveAttribute('data-location', 'floating');
   await expect
-    .poll(() => page.evaluate(() => localStorage.getItem('paw.tokenTracer.layout.v1')))
-    .not.toBeNull();
+    .poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('paw.tokenTracer.layout.v1') ?? '{}').layout?.floatingGroups?.length ?? 0))
+    .toBeGreaterThan(0);
   const saved = await page.evaluate(() => localStorage.getItem('paw.tokenTracer.layout.v1'));
   await page.reload();
   await expect(page.locator('.topbar-pipeline')).toBeVisible();
-  expect(await page.evaluate(() => localStorage.getItem('paw.tokenTracer.layout.v1'))).toBe(saved);
+  await expect(page.getByTestId('panel-events')).toHaveAttribute('data-location', 'floating');
+  const restored = await page.evaluate(() => localStorage.getItem('paw.tokenTracer.layout.v1'));
+  expect(JSON.parse(restored!).layout).toEqual(JSON.parse(saved!).layout);
   await page.getByTestId('panel-calls').click();
   await page.getByLabel('关闭 Calls Table').click();
   await page.getByRole('button', { name: '添加面板' }).click();
@@ -232,7 +234,7 @@ test('docks, tabs, resizes, persists, closes, restores, resets, and undoes', asy
 });
 
 test('links selection across table, flame, and inspector without filtering', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/?view=debug');
   await expect(page.locator('.topbar-pipeline')).toBeVisible();
   await page.getByTestId('panel-tab-inspector').click();
   await expect(page.locator('.inspector')).toContainText('选择调用、事件或时间桶查看详情');
@@ -254,7 +256,7 @@ test('links selection across table, flame, and inspector without filtering', asy
 
 test('survives EventSource failures while keeping the last snapshot', async ({ page }) => {
   await page.route('**/events', (route) => route.abort());
-  await page.goto('/');
+  await page.goto('/?view=debug');
   await expect(page.locator('.topbar-pipeline')).toBeVisible();
   await expect(page.getByText('重新连接中')).toBeVisible({ timeout: 15_000 });
   await expect(page.locator('.topbar-pipeline')).toBeVisible();
@@ -263,7 +265,7 @@ test('survives EventSource failures while keeping the last snapshot', async ({ p
 });
 
 test('recovers from a corrupted layout with a single backup key', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/?view=debug');
   await expect(page.locator('.topbar-pipeline')).toBeVisible();
   await page.evaluate(() => localStorage.setItem('paw.tokenTracer.layout.v1', '{'));
   await page.reload();
@@ -282,7 +284,7 @@ test('recovers from a corrupted layout with a single backup key', async ({ page 
 
 test('narrow mode preserves the desktop layout and returns to it', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.goto('/');
+  await page.goto('/?view=debug');
   await expect(page.locator('.topbar-pipeline')).toBeVisible();
   await expect
     .poll(() => page.evaluate(() => localStorage.getItem('paw.tokenTracer.layout.v1')))
@@ -299,7 +301,7 @@ test('narrow mode preserves the desktop layout and returns to it', async ({ page
 });
 
 test('keeps the events list responsive at 2000 entries', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/?view=debug');
   await expect(page.locator('.topbar-pipeline')).toBeVisible();
   const rows = page.locator('.event-row');
   await expect(rows.first()).toBeVisible();

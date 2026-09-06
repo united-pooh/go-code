@@ -1,0 +1,101 @@
+import { test, expect } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import type { GlobalPage } from '../src/global/types';
+
+test('paged API and explicit export preserve the real fixture scope', async ({ page, request }) => {
+  const url = process.env.PAW_GLOBAL_FIXTURE_URL;
+  test.skip(!url, 'Set PAW_GLOBAL_FIXTURE_URL for the real ledger.');
+  const first = await request.get(`${url}/api/global?view=requests&period=all&limit=2`);
+  const data = await first.json() as GlobalPage;
+  expect(data.version).toBe(2);
+  expect(data.summary.total).toBe(3840);
+  expect(data.requests).toHaveLength(2);
+  expect(JSON.stringify(data)).not.toContain('"atoms"');
+  const keys = new Set<string>();
+  for (const offset of [0, 2, 4]) {
+    const response = await request.get(`${url}/api/global?view=requests&period=all&limit=2&offset=${offset}`);
+    const page = await response.json() as GlobalPage;
+    for (const row of page.requests) keys.add(`${row.instance_id}/${row.id}`);
+    expect(page.summary.total).toBe(3840);
+  }
+  expect(keys.size).toBe(6);
+  await page.goto(url!);
+  await page.getByRole('button', { name: /paw-core.*1,280/ }).click();
+  await expect(page.locator('.total-anchor strong')).toHaveText('1,280');
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByRole('button', { name: '导出 ↗', exact: true }).click();
+  const download = await downloadPromise;
+  expect(await download.failure()).toBeNull();
+  const exported = JSON.parse(await readFile((await download.path())!, 'utf8'));
+  expect(exported.requests).toHaveLength(2);
+  expect(exported.coverage.requests).toBe(2);
+  expect(exported.requests.every((r: { project_id: string }) => r.project_id === exported.filters.project)).toBe(true);
+  expect(exported.requests.some((r: { attempts: { atoms?: unknown[] }[] }) => r.attempts.some(a => a.atoms?.length))).toBe(true);
+});
+
+test('601-row UI paginates from server pages and keeps selection during refresh', async ({ page, request }) => {
+  const url = process.env.PAW_GLOBAL_FIXTURE_URL;
+  test.skip(!url, 'Set PAW_GLOBAL_FIXTURE_URL for the base page and real request detail.');
+  const base = await (await request.get(`${url}/api/global?view=requests&period=all`)).json() as GlobalPage;
+  let largestRows = 0;
+  let secondPageReads = 0;
+  await page.route('**/api/global?*', async route => {
+    const params = new URL(route.request().url()).searchParams;
+    const limit = Number(params.get('limit') ?? 50);
+    const offset = Number(params.get('offset') ?? 0);
+    if (offset === 50) secondPageReads++;
+    const count = 601;
+    const rows = params.get('view') === 'requests' ? Array.from({ length: Math.min(limit, count-offset) }, (_, i) => ({ ...base.requests[(offset+i)%base.requests.length], id: offset+i === 0 ? base.requests[0].id : `pagination-${offset+i}` })) : [];
+    largestRows = Math.max(largestRows, rows.length);
+    await route.fulfill({ json: { ...base, query: Object.fromEntries(params), stored_requests: count, summary: { ...base.summary, requests: count }, requests: rows, pagination: { offset, limit, total: count } } });
+  });
+  await page.goto(url!);
+  await page.getByRole('button', { name: '请求', exact: true }).click();
+  await expect(page.locator('.request-row')).toHaveCount(50);
+  await page.locator('.request-row').first().click();
+  await expect(page.getByRole('complementary', { name: '请求明细' })).toContainText('输入原子分解');
+  await page.getByRole('button', { name: '下一页', exact: true }).click();
+  await expect(page.getByRole('button', { name: '查看请求 pagination-50', exact: true })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: '记录分页' })).toContainText('51–100 / 601 条');
+  await expect(page.locator('.total-anchor strong')).toHaveText('3,840');
+  await expect(page.getByRole('complementary', { name: '请求明细' })).toBeVisible();
+  await expect.poll(() => secondPageReads, { timeout: 5000 }).toBeGreaterThan(1);
+  await expect(page.getByRole('complementary', { name: '请求明细' })).toBeVisible();
+  await page.getByRole('button', { name: '关闭请求明细' }).click();
+  await page.getByLabel('每页条数').selectOption('250');
+  await expect(page.locator('.request-row')).toHaveCount(250);
+  await page.getByRole('button', { name: '下一页', exact: true }).click();
+  await expect(page.getByRole('navigation', { name: '记录分页' })).toContainText('251–500 / 601 条');
+  await page.getByRole('button', { name: '下一页', exact: true }).click();
+  await expect(page.locator('.request-row')).toHaveCount(101);
+  await expect(page.getByRole('button', { name: '下一页', exact: true })).toBeDisabled();
+  expect(largestRows).toBe(250);
+  await page.setViewportSize({ width: 760, height: 900 });
+  await page.getByRole('navigation', { name: '记录分页' }).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: path.join(fileURLToPath(new URL('../../../..', import.meta.url)), '.agent/visual/global-tracer-pagination.png'), animations: 'disabled' });
+});
+
+test('response replay detail keeps raw attempts but displays one accounted total', async ({ page, request }) => {
+  const url = process.env.PAW_GLOBAL_FIXTURE_URL;
+  test.skip(!url, 'Set PAW_GLOBAL_FIXTURE_URL for the built page.');
+  const base = await (await request.get(`${url}/api/global?view=requests&period=all`)).json() as GlobalPage;
+  const row = base.requests[0];
+  const detail = await (await request.get(`${url}/api/global/request?instance_id=${row.instance_id}&request_id=${row.id}`)).json();
+  const summary = { ...row.summary, requests: 1, attempts: 2, unknown: 1, reported: 2, total: 105, input: 100, inputKnown: 2, output: 5, outputKnown: 2, cacheKnown: 0, cacheRead: 0, cacheCreation: 0, reasoning: 0, running: 0 };
+  detail.summary = summary;
+  detail.attempts = [2, 5].map((output, index) => ({ ...detail.attempts[0], number: index+1, provider_response_id: 'response-replay-fixture', usage_finality: index ? 'final' : 'partial', tokens: { input: 100, output, cache_read: 0, cache_creation: 0, reasoning: 0 }, known: { input: true, output: true, cache_read: false, cache_creation: false, reasoning: false } }));
+  await page.route('**/api/global?*', route => route.fulfill({ json: { ...base, summary, project_count: 1, instances: base.instances.filter(instance => instance.project_id === row.project_id), requests: [{ ...row, summary }], pagination: { offset: 0, limit: 50, total: 1 } } }));
+  await page.route('**/api/global/request?*', route => route.fulfill({ json: detail }));
+  await page.goto(url!);
+  await page.getByRole('button', { name: '请求', exact: true }).click();
+  await page.locator('.request-row').first().click();
+  const inspector = page.getByRole('complementary', { name: '请求明细' });
+  await expect(inspector.locator('.detail-total b')).toHaveText('105');
+  await expect(inspector).toContainText('同一响应的累计 usage 已在本请求内合并');
+  await expect(inspector).toContainText('部分报告，最终量未确认');
+  await expect(inspector).toContainText('已确认最终 usage');
+  await expect(inspector.locator('.attempt-section')).toHaveCount(2);
+  await page.screenshot({ path: path.join(fileURLToPath(new URL('../../../..', import.meta.url)), '.agent/visual/global-tracer-replay.png'), animations: 'disabled' });
+});

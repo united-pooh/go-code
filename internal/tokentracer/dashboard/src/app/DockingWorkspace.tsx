@@ -168,7 +168,7 @@ export function DockingWorkspace({ layoutStore }: DockingWorkspaceProps) {
       applyDefaultLayout(api);
     }
     restoredRef.current = true;
-    api.getPanel('calls')?.api.setActive();
+    if (!restored) api.getPanel('calls')?.api.setActive();
     refreshOpenPanels(api);
     ownedLayoutStore.scheduleSave(api.toJSON());
     disposablesRef.current.push(

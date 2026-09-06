@@ -229,26 +229,28 @@ func ConfiguredProfiles(cfg Config) []Profile {
 		return cloneProfiles(cfg.Profiles)
 	}
 	return []Profile{{
-		ID:             cfg.ProfileID,
-		Name:           cfg.ProfileName,
-		Provider:       cfg.Provider,
-		Transport:      cfg.Transport,
-		Adapter:        cfg.Adapter,
-		APIBaseURL:     cfg.APIBaseURL,
-		APIPath:        cfg.APIPath,
-		APIKey:         cfg.APIKey,
-		APIKeyEnvName:  cfg.APIKeyEnvName,
-		Headers:        cloneStringMap(cfg.Headers),
-		Proxy:          CloneProxyConfig(cfg.Proxy),
-		Model:          cfg.Model,
-		Models:         append([]string(nil), cfg.Models...),
-		ExtraBody:      CloneRequestBody(cfg.ExtraBody),
-		ModelExtraBody: CloneModelExtraBodies(cfg.ModelExtraBody),
-		Timeout:        cfg.Timeout,
-		RetryCount:     cfg.RetryCount,
-		RetryCountSet:  cfg.RetryCountSet,
-		Stream:         cfg.Stream,
-		StreamSet:      cfg.streamSet || cfg.StreamSet,
+		ID:                      cfg.ProfileID,
+		Name:                    cfg.ProfileName,
+		Provider:                cfg.Provider,
+		Transport:               cfg.Transport,
+		Adapter:                 cfg.Adapter,
+		APIBaseURL:              cfg.APIBaseURL,
+		APIPath:                 cfg.APIPath,
+		APIKey:                  cfg.APIKey,
+		APIKeyEnvName:           cfg.APIKeyEnvName,
+		Headers:                 cloneStringMap(cfg.Headers),
+		Proxy:                   CloneProxyConfig(cfg.Proxy),
+		Model:                   cfg.Model,
+		Models:                  append([]string(nil), cfg.Models...),
+		ExtraBody:               CloneRequestBody(cfg.ExtraBody),
+		ModelExtraBody:          CloneModelExtraBodies(cfg.ModelExtraBody),
+		ContextLimitTokens:      cfg.ContextLimitTokens,
+		ModelContextLimitTokens: cloneModelContextLimits(cfg.ModelContextLimitTokens),
+		Timeout:                 cfg.Timeout,
+		RetryCount:              cfg.RetryCount,
+		RetryCountSet:           cfg.RetryCountSet,
+		Stream:                  cfg.Stream,
+		StreamSet:               cfg.streamSet || cfg.StreamSet,
 	}}
 }
 
@@ -299,11 +301,20 @@ func containsModel(models []string, want string) bool {
 }
 
 func EffectiveContextLimitTokens(cfg Config) int {
+	return ResolveContextLimitTokens(cfg, 0)
+}
+
+// ResolveContextLimitTokens prefers explicit model limits, then the general
+// override, model metadata, and finally the default, without changing cfg.
+func ResolveContextLimitTokens(cfg Config, generalLimit int) int {
 	if limit := cfg.ModelContextLimitTokens[strings.TrimSpace(cfg.Model)]; limit > 0 {
 		return limit
 	}
 	if cfg.ContextLimitTokens > 0 {
 		return cfg.ContextLimitTokens
+	}
+	if generalLimit > 0 {
+		return generalLimit
 	}
 	if limit := MetadataContextLimit(cfg.Provider, cfg.Model); limit > 0 {
 		return limit
