@@ -185,6 +185,14 @@ function mockScroll(el: Element, scrollTop: number) {
   fireEvent.scroll(el);
 }
 
+it('separates the full scroll viewport from centered content and offers return without unread', () => {
+  render(<ConversationView snapshot={snapshotWithTurn({})} parts={{}} onInspect={() => undefined} />);
+  expect(document.querySelector('.conversation-view > .conversation-content')).not.toBeNull();
+  mockScroll(document.querySelector('.conversation-view')!, 100);
+  fireEvent.click(screen.getByRole('button', { name: '↓ 回到最新' }));
+  expect(document.querySelector('.scroll-to-latest')).toBeNull();
+});
+
 it('快照晚到时滚动监听仍正确绑定（首帧 empty-state 不丢监听器）', () => {
   const view = render(<ConversationView snapshot={null} parts={{}} onInspect={() => undefined} />);
   expect(document.querySelector('.empty-state')).not.toBeNull();
@@ -311,5 +319,37 @@ it('sendSignal 未变化时普通重渲染不强制回底（尊重上翻脱离�
   // 普通重渲染（快照对象刷新但内容条数不变）：不得强制回底
   view.rerender(<ConversationView snapshot={snapshotWithTurn({ status: 'completed' })} parts={{}} onInspect={() => undefined} sendSignal={0} />);
   expect((scrollEl as HTMLElement).scrollTop).toBe(100);
-  expect(document.querySelector('.scroll-to-latest')).toBeNull();
+  expect(screen.getByRole('button', { name: '↓ 回到最新' })).toBeInTheDocument();
+});
+
+it('navigates to a stable user anchor and keeps manual reading during updates', async () => {
+  const snapshot = snapshotWithTurn({});
+  snapshot.turns.push({ turn_id: 't2', messages: [{ role: 'user', content: '第二问' }, { role: 'assistant', content: '第二答' }] });
+  const view = render(<ConversationView snapshot={snapshot} parts={{}} onInspect={() => undefined} />);
+  const viewport = document.querySelector('.conversation-view')!;
+  mockScroll(viewport, 100);
+  const anchor = document.querySelector<HTMLElement>('[data-turn-id="t2"][data-turn-question]');
+  expect(anchor).not.toBeNull();
+  vi.spyOn(viewport, 'getBoundingClientRect').mockReturnValue({ top: 50 } as DOMRect);
+  vi.spyOn(anchor!, 'getBoundingClientRect').mockReturnValue({ top: 474 } as DOMRect);
+  fireEvent.click(screen.getByRole('button', { name: '第 2 轮：第二问' }));
+  expect(viewport.scrollTop).toBe(500);
+  expect(anchor).toHaveFocus();
+  view.rerender(<ConversationView snapshot={{ ...snapshot }} parts={{}} onInspect={() => undefined} />);
+  expect(viewport.scrollTop).toBe(500);
+  expect(document.querySelector('[data-turn-id="t2"][data-turn-question]')).toBe(anchor);
+});
+
+it('keeps one navigation item and the question anchor across streaming handoff', async () => {
+  const snapshot = snapshotWithTurn({ status: 'running', messages: [{ role: 'user', content: '你好' }] });
+  snapshot.active_turn_id = 't1';
+  const parts = { p: { part_id: 'p', session_id: 's1', turn_id: 't1', kind: 'assistant', text: '流式答案' } };
+  const view = render(<ConversationView snapshot={snapshot} parts={parts} showActivity={false} onInspect={() => undefined} />);
+  const anchor = document.querySelector('[data-turn-id="t1"][data-turn-question]');
+  expect(anchor).not.toBeNull();
+  await waitFor(() => expect(document.querySelector('.message.assistant')).toHaveTextContent('流式答案'));
+  view.rerender(<ConversationView snapshot={snapshotWithTurn({ status: 'completed' })} parts={parts} showActivity={false} onInspect={() => undefined} />);
+  await waitFor(() => expect(document.querySelector('.message.assistant')).toHaveTextContent('你好，有什么可以帮你？'));
+  expect(document.querySelector('[data-turn-id="t1"][data-turn-question]')).toBe(anchor);
+  expect(screen.getAllByRole('button', { name: '第 1 轮：你好' })).toHaveLength(1);
 });

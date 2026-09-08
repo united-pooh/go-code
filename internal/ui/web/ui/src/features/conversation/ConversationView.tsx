@@ -2,6 +2,9 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import type { MessagePart, SessionSnapshot, StreamingPart, ToolCall, ToolResult } from '../../api/types';
 import { CopyButton } from '../../components/CopyButton';
 import { MarkdownContent } from '../../components/MarkdownContent';
+import { TurnNavigator } from './TurnNavigator';
+import { buildTurnNavigation } from './turnNavigation';
+import { turnAnchors, useConversationNavigation } from './useConversationNavigation';
 
 /** 从工具调用入参中提取可展示的目标（路径 / 命令 / URL） */
 function toolTarget(call: ToolCall): string {
@@ -255,7 +258,7 @@ function LiveTextBubble({ part, active, startedAt, showMeta, onPumpState }: {
   const pumping = text.length < part.text.length;
   useEffect(() => { onPumpState(part.part_id, pumping); }, [pumping, onPumpState, part.part_id]);
   // stream-typing 覆盖整个泵期（含片段完成后加速追平），光标跟随；live 仅标记片段仍在流。
-  return <article className={`message assistant${pumping ? ' stream-typing' : ''}${streaming ? ' live' : ''}`}>
+  return <article data-turn-id={part.turn_id} tabIndex={-1} className={`message assistant${pumping ? ' stream-typing' : ''}${streaming ? ' live' : ''}`}>
     <div className="message-role">Paw</div>
     <MarkdownContent text={text} />
     {showMeta && active && <MessageMetaRow meta={{ started_at: startedAt, status: 'running' }} />}
@@ -335,7 +338,7 @@ function ActivityGroup({ items }: { items: ActivityItem[] }) {
 // 贴底判定阈值（像素）：容忍滚动圆整与惯性滚动的末端过冲。
 const BOTTOM_STICK_THRESHOLD = 32;
 
-export function ConversationView({ snapshot, parts, showActivity = true, onInspect, onFork, exportUrl, sendSignal = 0 }: {
+export function ConversationView({ snapshot, parts, showActivity = true, onInspect, onFork, exportUrl, sendSignal = 0, navigationHost }: {
   snapshot: SessionSnapshot | null;
   parts: Record<string, StreamingPart>;
   showActivity?: boolean;
@@ -346,6 +349,7 @@ export function ConversationView({ snapshot, parts, showActivity = true, onInspe
   exportUrl?: string;
   /** 发送信号：Composer 每次提交消息时递增，触发强制回底（挂载时不触发） */
   sendSignal?: number;
+  navigationHost?: HTMLElement | null;
 }) {
   // 泵状态：泵未追平的 part 即使快照已到达也继续由流式气泡渲染（聚合上游的 delta→快照
   // 只有几十毫秒，不打断打字机）；同时压制对应 turn 的快照正文，避免双显示，追平后同帧切换。
@@ -373,6 +377,18 @@ export function ConversationView({ snapshot, parts, showActivity = true, onInspe
   const [stickToBottom, setStickToBottom] = useState(true);
   const [pendingCount, setPendingCount] = useState(0);
   const assistantCountRef = useRef(0);
+  const currentTurnID = useConversationNavigation(scrollEl, stickToBottom);
+  const navigationItems = buildTurnNavigation(snapshot?.turns ?? [], parts);
+  const selectTurn = useCallback((turnID: string, focusTarget: boolean) => {
+    const el = nodeRef.current;
+    if (!el) return;
+    const anchor = turnAnchors(el).get(turnID);
+    if (!anchor) return;
+    stickRef.current = false;
+    setStickToBottom(false);
+    el.scrollTop = Math.max(0, anchor.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop - 24);
+    if (focusTarget) anchor.focus({ preventScroll: true });
+  }, []);
 
   // 会话切换的重置由调用方 key={sessionID} 重挂载完成（避免在 effect 中同步 setState）。
   const blocks = snapshot ? buildBlocks(snapshot) : [];
@@ -436,7 +452,6 @@ export function ConversationView({ snapshot, parts, showActivity = true, onInspe
   }, [sendSignal, scrollToBottomNow]);
 
   const jumpToLatest = scrollToBottomNow;
-  void stickToBottom;
 
   if (!snapshot) return <div className="empty-state">选择一个会话开始查看对话</div>;
   // 流式视图：SSE delta 实时增长，但快照内容只在回合完成后出现。
@@ -455,10 +470,11 @@ export function ConversationView({ snapshot, parts, showActivity = true, onInspe
   const liveReasoning = Object.values(parts).filter((part) => part.kind === 'reasoning' && !snapshotContentTurns.has(part.turn_id) && snapshot.active_turn_id === part.turn_id);
   return <div className="conversation-wrap">
     <div className="conversation-view" ref={scrollRef}>
+    <div className="conversation-content">
     {blocks.map((block) => {
       if (block.type === 'user-text') {
         // 气泡只承载正文；时间戳等页脚信息与操作条放在气泡外右下角。
-        return <article className="message user" key={block.key}>
+        return <article className="message user" key={block.key} data-turn-id={block.turnID} data-turn-question tabIndex={-1}>
           <div className="message-role">你</div>
           <div className="user-bubble"><MarkdownContent text={block.text} /></div>
           <div className="message-footer">
@@ -470,7 +486,7 @@ export function ConversationView({ snapshot, parts, showActivity = true, onInspe
       if (block.type === 'assistant-text') {
         // 该 turn 的流式气泡仍在打字：由其继续渲染，快照正文先行压制。
         if (pumpingTurns.has(block.turnID)) return null;
-        return <article className="message assistant" key={block.key}>
+        return <article className="message assistant" key={block.key} data-turn-id={block.turnID} tabIndex={-1}>
           <div className="message-role">Paw</div>
           <MarkdownContent text={block.text} />
           <div className="message-footer">
@@ -498,9 +514,12 @@ export function ConversationView({ snapshot, parts, showActivity = true, onInspe
       <span>{part.kind === 'reasoning' ? '思考过程' : '实时响应'}</span><small>{part.text.slice(0, 140) || '等待内容…'}</small>
     </button>)}
     </div>
-    {pendingCount > 0 && (
+    </div>
+    <TurnNavigator items={navigationItems} currentTurnID={currentTurnID} onSelect={selectTurn}
+      navigationHost={navigationHost} hasEarlier={Boolean(snapshot.earlier_cursor)} />
+    {!stickToBottom && (
       <button type="button" className="scroll-to-latest" title="回到底部" onClick={jumpToLatest}>
-        ↓ {pendingCount} 条新消息
+        {pendingCount > 0 ? `↓ ${pendingCount} 条新消息` : '↓ 回到最新'}
       </button>
     )}
   </div>;

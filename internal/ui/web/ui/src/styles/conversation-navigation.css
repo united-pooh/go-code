@@ -1,0 +1,60 @@
+.main-workspace { container-type: inline-size; }
+.turn-navigation-slot { display: none; }
+.turn-navigation {
+  position: absolute; inset: 16px 14px calc(var(--dock-clearance, 120px) + 56px);
+  z-index: 8; pointer-events: none; min-height: 0;
+}
+.turn-ruler { position: absolute; top: 50%; transform: translateY(-50%); max-height: 100%; display: flex; flex-direction: column; width: 36px; pointer-events: auto; }
+.turn-list { overflow-y: auto; min-height: 0; overscroll-behavior: contain; scrollbar-width: none; }
+.turn-list::-webkit-scrollbar { display: none; }
+.turn-range { font: 10px var(--font-mono); color: var(--muted); text-align: center; padding: 6px 0; flex-shrink: 0; }
+.turn-ruler .turn-range { order: 1; font-size: 9px; }
+.turn-range-count { display: block; white-space: nowrap; }
+.turn-tick { display: flex; align-items: center; width: 36px; height: 10px; padding: 0 7px; border: 0; border-radius: 5px; background: transparent; }
+.turn-tick span { width: 14px; height: 2px; border-radius: 2px; background: #c9c3b8; transition: width .15s, background .15s; }
+.turn-tick:nth-child(3n) span { width: 20px; }
+.turn-tick:hover { background: var(--accent-faint); }
+.turn-tick:hover span { width: 25px; background: #9b8778; }
+.turn-tick[aria-current=true] span { width: 25px; background: var(--accent); }
+.turn-tick:focus-visible, .turn-menu-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.turn-preview {
+  position: absolute; left: 36px; width: 342px; max-width: calc(100% - 36px); max-height: 100%;
+  pointer-events: auto; padding-left: 12px; display: flex; flex-direction: column;
+}
+.turn-preview-card {
+  min-height: 0; overflow-y: auto; border: 1px solid #ddd5c8; border-radius: 14px; padding: 15px 17px;
+  background: #f4f1eb; box-shadow: var(--shadow-md); color: var(--text-soft);
+}
+.turn-preview strong { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; line-height: 1.7; font-weight: 600; }
+.turn-preview p { font-size: 13px; line-height: 1.8; margin: 7px 0 11px; color: var(--muted); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+.turn-preview small { font-size: 10px; color: var(--muted); }
+.turn-navigation-toggle { border: 1px solid var(--border); border-radius: 7px; background: var(--surface); padding: 6px 9px; font-size: 11px; white-space: nowrap; color: var(--text-soft); }
+.turn-menu { pointer-events: auto; width: min(330px, 100%); max-height: 100%; display: flex; flex-direction: column; padding: 6px; border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-lg); background: var(--surface); }
+.turn-menu .turn-range { text-align: left; padding: 8px; font-family: var(--font-ui); }
+.turn-menu-item { display: flex; gap: 12px; width: 100%; min-height: 44px; text-align: left; border: 0; border-radius: 8px; padding: 12px; background: transparent; color: var(--text-soft); }
+.turn-menu-item:hover, .turn-menu-item[aria-current=true] { background: var(--accent-faint); }
+.turn-menu-item > span:last-child { min-width: 0; }
+.turn-menu-item strong, .turn-menu-item small { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.turn-menu-item strong { font-weight: 600; }
+.turn-menu-item small { margin-top: 5px; color: var(--muted); }
+.turn-number { font: 11px var(--font-mono); color: var(--muted); padding-top: 3px; }
+[data-turn-id]:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 6px; }
+@container (min-width: 541px) and (max-width: 880px) {
+  .turn-navigation { left: 1px; }
+  .turn-ruler { width: 21px; }
+  .turn-tick { width: 21px; padding: 0 4px; }
+  .turn-tick span { max-width: 14px; }
+  .turn-ruler .turn-range { font-size: 7px; }
+  .turn-preview { left: 15px; max-width: calc(100% - 15px); }
+}
+@container (max-width: 540px) {
+  .turn-navigation-slot { display: block; }
+  .topbar { gap: 6px; padding: 10px 12px; }
+  .topbar > div { gap: 6px; }
+  .topbar h1 { max-width: 120px; }
+  .topbar .connection-badge { display: none; }
+  .topbar nav button { padding: 5px 8px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .turn-navigation *, .scroll-to-latest { animation: none; transition: none; }
+}
