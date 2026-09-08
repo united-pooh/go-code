@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CompletionItem, ModelOptionsResponse } from '../api/types';
 import { QueueIndicator } from '../features/conversation/QueueIndicator';
 
@@ -25,6 +25,12 @@ const EFFORT_LABELS: Record<string, string> = { default: '默认', low: '低', m
 const effortLabel = (effort: string): string => EFFORT_LABELS[effort] ?? effort;
 
 function newCommandID(): string { return crypto.randomUUID(); }
+
+function resizeTextarea(textarea: HTMLTextAreaElement | null) {
+  if (!textarea) return;
+  textarea.style.height = 'auto';
+  textarea.style.height = `${textarea.scrollHeight}px`;
+}
 
 /* ---------- 触发点检测（与 Go 端 complete.DetectWordTrigger 同规则） ---------- */
 
@@ -79,11 +85,29 @@ export function Composer({ workspaceID, sessionID, activeTurnID, queueCount = 0,
   const [completion, setCompletion] = useState<CompletionState | null>(null);
   const [modelOptions, setModelOptions] = useState<ModelOptionsResponse | null>(null);
   const [selectingModel, setSelectingModel] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const requestSeq = useRef(0);
   const modelLoaderRef = useRef(loadModelOptions);
   modelLoaderRef.current = loadModelOptions;
   const running = Boolean(activeTurnID);
   const canSubmit = useMemo(() => text.trim() !== '' && !pending, [text, pending]);
+
+  useLayoutEffect(() => {
+    resizeTextarea(textareaRef.current);
+  }, [text]);
+
+  useLayoutEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    let width = 0;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry.contentRect.width === width) return;
+      width = entry.contentRect.width;
+      resizeTextarea(textarea);
+    });
+    observer.observe(textarea);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     setText(localStorage.getItem(storageKey) ?? '');
@@ -251,11 +275,10 @@ export function Composer({ workspaceID, sessionID, activeTurnID, queueCount = 0,
       </div>
     )}
     <div className="composer">
-      <textarea aria-label="消息" value={text} onChange={(event) => update(event.target.value)} onKeyDown={handleKeyDown} placeholder={running ? (runningAction === 'queue' ? '排队到当前回合结束后发送' : '立即调整当前回合') : '给 Paw 发消息，@ 引用文件 · / 指令 · $ 技能'} />
+      <textarea ref={textareaRef} rows={1} aria-label="消息" value={text} onChange={(event) => update(event.target.value)} onKeyDown={handleKeyDown} placeholder={running ? (runningAction === 'queue' ? '排队到当前回合结束后发送' : '立即调整当前回合') : '给 Paw 发消息，@ 引用文件 · / 指令 · $ 技能'} />
       {running
         ? <button type="button" className="composer-send stop" aria-label="停止" title="停止当前回合" disabled={pending || !onCancel} onClick={() => void cancel()}><StopIcon /></button>
         : <button type="button" className="composer-send" aria-label="发送" title="发送" disabled={!canSubmit} onClick={() => void submit()}><SendIcon /></button>}
     </div>
-    <div className="composer-hint">Enter 发送 · Shift + Enter 换行 · @ 文件 · / 指令 · $ 技能</div>
   </div>;
 }

@@ -1,5 +1,11 @@
 import '@testing-library/jest-dom/vitest';
 
+globalThis.ResizeObserver = class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+};
+
 const storage = new Map<string, string>();
 const localStorageStub: Storage = {
   get length() { return storage.size; },

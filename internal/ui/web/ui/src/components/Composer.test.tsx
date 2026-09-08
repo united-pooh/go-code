@@ -1,8 +1,110 @@
-import { render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Composer } from './Composer';
 
 beforeEach(() => localStorage.clear());
+
+it('starts with one row and no shortcut hint', () => {
+  render(<Composer workspaceID="w" sessionID="s" onSubmit={async () => undefined} />);
+  expect(screen.getByLabelText('消息')).toHaveAttribute('rows', '1');
+  expect(screen.queryByText(/Enter 发送/)).toBeNull();
+});
+
+describe('composer autosizing', () => {
+  beforeEach(() => {
+    vi.spyOn(HTMLTextAreaElement.prototype, 'scrollHeight', 'get').mockImplementation(function (this: HTMLTextAreaElement) {
+      expect(this.style.height).toBe('auto');
+      return this.value.split('\n').length * 25 + 11;
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('grows with multiline edits and shrinks when text is removed', () => {
+    render(<Composer workspaceID="w" sessionID="s" onSubmit={async () => undefined} />);
+    const textarea = screen.getByLabelText('消息');
+    expect(textarea).toHaveStyle({ height: '36px' });
+    fireEvent.change(textarea, { target: { value: 'first\nsecond\nthird' } });
+    expect(textarea).toHaveStyle({ height: '86px' });
+    fireEvent.change(textarea, { target: { value: 'short' } });
+    expect(textarea).toHaveStyle({ height: '36px' });
+    fireEvent.change(textarea, { target: { value: '' } });
+    expect(textarea).toHaveStyle({ height: '36px' });
+  });
+
+  it('resizes restored drafts on mount and when the session changes', () => {
+    localStorage.setItem('paw:draft:w:a', 'first\nsecond\nthird');
+    localStorage.setItem('paw:draft:w:b', 'short');
+    const view = render(<Composer workspaceID="w" sessionID="a" onSubmit={async () => undefined} />);
+    expect(screen.getByLabelText('消息')).toHaveStyle({ height: '86px' });
+    view.rerender(<Composer workspaceID="w" sessionID="b" onSubmit={async () => undefined} />);
+    expect(screen.getByLabelText('消息')).toHaveValue('short');
+    expect(screen.getByLabelText('消息')).toHaveStyle({ height: '36px' });
+  });
+
+  it('keeps the pending draft expanded and collapses after a successful send', async () => {
+    let finish: (() => void) | undefined;
+    render(<Composer workspaceID="w" sessionID="s" onSubmit={() => new Promise(resolve => { finish = resolve; })} />);
+    const textarea = screen.getByLabelText('消息');
+    fireEvent.change(textarea, { target: { value: 'first\nsecond' } });
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+    expect(textarea).toHaveValue('first\nsecond');
+    expect(textarea).toHaveStyle({ height: '61px' });
+    await act(async () => finish?.());
+    expect(textarea).toHaveValue('');
+    expect(textarea).toHaveStyle({ height: '36px' });
+  });
+
+  it('remeasures completion replacement without submitting it', async () => {
+    const user = userEvent.setup();
+    const submit = vi.fn();
+    render(<Composer workspaceID="w" sessionID="s" onSubmit={submit}
+      loadCompletions={async () => [{ label: '/task' }]} />);
+    const textarea = screen.getByLabelText('消息');
+    await user.type(textarea, 'first{shift>}{enter}{/shift}/ta');
+    await screen.findByRole('option', { name: '/task' });
+    await user.keyboard('{Enter}');
+    expect(textarea).toHaveValue('first\n/task ');
+    expect(textarea).toHaveStyle({ height: '61px' });
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it('observes only width changes and disconnects without moving focus or the cursor', () => {
+    let notify: ResizeObserverCallback = () => undefined;
+    const disconnect = vi.fn();
+    const observe = vi.fn();
+    const observer: ResizeObserver = { observe, unobserve: vi.fn(), disconnect };
+    const Observer = vi.fn(function (callback: ResizeObserverCallback) {
+      notify = callback;
+      return observer;
+    });
+    vi.stubGlobal('ResizeObserver', Observer);
+    let height = 36;
+    const measure = vi.spyOn(HTMLTextAreaElement.prototype, 'scrollHeight', 'get').mockImplementation(() => height);
+    const view = render(<Composer workspaceID="w" sessionID="s" onSubmit={async () => undefined} />);
+    const textarea = screen.getByLabelText<HTMLTextAreaElement>('消息');
+    const resized = (width: number) => act(() => notify([{ contentRect: { width } } as ResizeObserverEntry], observer));
+    expect(observe).toHaveBeenCalledWith(textarea);
+    fireEvent.change(textarea, { target: { value: 'some text' } });
+    textarea.focus();
+    textarea.setSelectionRange(2, 4);
+    resized(500);
+    const calls = measure.mock.calls.length;
+    height = 86;
+    resized(500);
+    expect(measure).toHaveBeenCalledTimes(calls);
+    resized(250);
+    expect(textarea).toHaveStyle({ height: '86px' });
+    expect(document.activeElement).toBe(textarea);
+    expect([textarea.selectionStart, textarea.selectionEnd]).toEqual([2, 4]);
+    expect(Observer).toHaveBeenCalledTimes(1);
+    view.unmount();
+    expect(disconnect).toHaveBeenCalledTimes(1);
+  });
+});
 
 it('submits on Enter, keeps Shift+Enter, and does not duplicate pending command IDs', async () => {
   const user = userEvent.setup();
