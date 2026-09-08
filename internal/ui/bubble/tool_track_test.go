@@ -13,12 +13,12 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
-	"paw/internal/loop"
-	coremcp "paw/internal/mcp"
+	coremcp "paw/internal/capability/mcp"
+	"paw/internal/capability/model"
+	"paw/internal/capability/tool"
+	toolmcp "paw/internal/capability/tool/mcp"
 	"paw/internal/message"
-	"paw/internal/model"
-	"paw/internal/tool"
-	toolmcp "paw/internal/tool/mcp"
+	"paw/internal/runtime/loop"
 	"paw/internal/ui"
 )
 

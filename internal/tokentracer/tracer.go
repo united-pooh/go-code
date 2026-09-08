@@ -1,13 +1,14 @@
 package tokentracer
 
 import (
+	"crypto/rand"
 	"fmt"
 	"math"
 	"strings"
 	"sync"
 	"time"
 
-	"paw/internal/model"
+	"paw/internal/capability/model"
 )
 
 const maxEventHistory = 2000
@@ -22,42 +23,13 @@ type Usage struct {
 }
 
 func UsageFromModelUsage(usage model.Usage) Usage {
-	cacheRead := maxInt(0, usage.CacheHitTokens())
-	cacheCreation := directCacheCreationTokens(usage)
-	output := maxInt(0, usage.CompletionTokenCount())
-	prompt := usage.PromptTokenCount()
-	if prompt == 0 && usage.TotalTokens != 0 {
-		prompt = maxInt(0, usage.TotalTokens-output)
-	}
-
-	input := maxInt(0, prompt)
-	if usage.InputTokens != 0 && (usage.CacheReadInputTokens != 0 || usage.CacheCreationInputTokens != 0) {
-		input = maxInt(0, usage.InputTokens)
-	} else if cacheRead > 0 {
-		input = maxInt(0, prompt-cacheRead)
-	}
-
+	b := usage.Breakdown()
 	return Usage{
-		Input:         input,
-		Output:        output,
-		CacheRead:     cacheRead,
-		CacheCreation: cacheCreation,
+		Input:         b.Input,
+		Output:        b.Output,
+		CacheRead:     b.CacheRead,
+		CacheCreation: b.CacheCreation,
 	}.Normalized()
-}
-
-func directCacheCreationTokens(usage model.Usage) int {
-	for _, value := range []int{
-		usage.CacheCreationInputTokens,
-		usage.PromptTokensDetails.CacheCreationTokens,
-		usage.InputTokensDetails.CacheCreationTokens,
-		usage.PromptTokensDetails.CacheCreationInputTokens,
-		usage.InputTokensDetails.CacheCreationInputTokens,
-	} {
-		if value != 0 {
-			return maxInt(0, value)
-		}
-	}
-	return 0
 }
 
 func (u Usage) Normalized() Usage {
@@ -76,7 +48,6 @@ func (u Usage) Normalized() Usage {
 
 func (u Usage) Add(other Usage) Usage {
 	u = u.Normalized()
-	other = other.Normalized()
 	return Usage{
 		Input:         u.Input + other.Input,
 		Output:        u.Output + other.Output,
@@ -89,15 +60,14 @@ func (u Usage) Delta(previous Usage) Usage {
 	u = u.Normalized()
 	previous = previous.Normalized()
 	return Usage{
-		Input:         maxInt(0, u.Input-previous.Input),
-		Output:        maxInt(0, u.Output-previous.Output),
-		CacheRead:     maxInt(0, u.CacheRead-previous.CacheRead),
-		CacheCreation: maxInt(0, u.CacheCreation-previous.CacheCreation),
-	}.Normalized()
+		Input:         u.Input - previous.Input,
+		Output:        u.Output - previous.Output,
+		CacheRead:     u.CacheRead - previous.CacheRead,
+		CacheCreation: u.CacheCreation - previous.CacheCreation,
+	}
 }
 
 func (u Usage) Empty() bool {
-	u = u.Normalized()
 	return u.Input == 0 && u.Output == 0 && u.CacheRead == 0 && u.CacheCreation == 0
 }
 
@@ -153,17 +123,18 @@ type Snapshot struct {
 }
 
 type Tracer struct {
-	mu          sync.RWMutex
-	pipeline    Pipeline
-	sessionID   string
-	workspace   string
-	serverURL   string
-	stageIndex  map[string]*Stage
-	agentIndex  map[string]*Agent
-	events      []Event
-	subscribers map[chan Event]struct{}
-	turnSeq     int
-	eventSeq    int
+	mu             sync.RWMutex
+	pipeline       Pipeline
+	sessionID      string
+	workspace      string
+	serverURL      string
+	stageIndex     map[string]*Stage
+	agentIndex     map[string]*Agent
+	requestHistory map[string]int
+	events         []Event
+	subscribers    map[chan Event]struct{}
+	turnSeq        int
+	eventSeq       int
 }
 
 func New(name string) *Tracer {
@@ -172,7 +143,7 @@ func New(name string) *Tracer {
 		name = "Paw"
 	}
 	now := time.Now().UTC()
-	runID := fmt.Sprintf("run-%s", now.Format("20060102-150405"))
+	runID := "run-" + rand.Text()
 	t := &Tracer{
 		pipeline: Pipeline{
 			ID:        runID,
@@ -180,9 +151,10 @@ func New(name string) *Tracer {
 			StartTime: now.Format(time.RFC3339Nano),
 			Status:    "live",
 		},
-		stageIndex:  make(map[string]*Stage),
-		agentIndex:  make(map[string]*Agent),
-		subscribers: make(map[chan Event]struct{}),
+		stageIndex:     make(map[string]*Stage),
+		agentIndex:     make(map[string]*Agent),
+		requestHistory: make(map[string]int),
+		subscribers:    make(map[chan Event]struct{}),
 	}
 	t.publishLocked("pipeline_start", map[string]any{"id": runID, "name": name})
 	return t
@@ -287,8 +259,7 @@ func (t *Tracer) RecordAPICall(stageID, stageName, agentID, agentName, provider,
 	if t == nil {
 		return
 	}
-	usage = usage.Normalized()
-	if usage.Empty() {
+	if usage.Empty() && data["source"] != "request_start" && data["usage_known"] != true {
 		return
 	}
 	stageID = defaultID(stageID, "default")
@@ -299,23 +270,34 @@ func (t *Tracer) RecordAPICall(stageID, stageName, agentID, agentName, provider,
 	defer t.mu.Unlock()
 	stage := t.ensureStageLocked(stageID, stageName)
 	agent := t.ensureAgentLocked(stage, agentID, agentName)
-	agent.Calls++
-	agent.CallsHistory = append(agent.CallsHistory, usage)
+	requestID, _ := data["request_id"].(string)
+	key := agentKey(stageID, agentID) + ":" + requestID
+	historyIndex, seen := t.requestHistory[key]
+	if requestID == "" || !seen {
+		agent.Calls++
+		stage.Calls++
+		t.pipeline.Calls++
+		if requestID != "" {
+			t.requestHistory[key] = len(agent.CallsHistory)
+		}
+		agent.CallsHistory = append(agent.CallsHistory, usage.Normalized())
+	} else {
+		agent.CallsHistory[historyIndex] = agent.CallsHistory[historyIndex].Add(usage)
+	}
 	agent.Total = agent.Total.Add(usage)
 	agent.Provider = strings.TrimSpace(provider)
 	agent.Model = strings.TrimSpace(modelName)
 	agent.LastEvent = "api_call"
-	stage.Calls++
 	stage.Subtotal = stage.Subtotal.Add(usage)
-	t.pipeline.Calls++
 	t.pipeline.Total = t.pipeline.Total.Add(usage)
 
 	payload := map[string]any{
-		"stage_id": stage.ID,
-		"agent_id": agent.ID,
-		"provider": strings.TrimSpace(provider),
-		"model":    strings.TrimSpace(modelName),
-		"usage":    usage,
+		"stage_id":   stage.ID,
+		"agent_id":   agent.ID,
+		"provider":   strings.TrimSpace(provider),
+		"model":      strings.TrimSpace(modelName),
+		"usage":      usage,
+		"session_id": t.sessionID,
 	}
 	for key, value := range data {
 		payload[key] = value

@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	"github.com/charmbracelet/lipgloss"
-	"paw/internal/theme"
 	"paw/internal/ui/bubble/textareax"
+	"paw/internal/ui/theme"
 )
 
 // activePalette 记录全局 legacy 样式当前对应的调色板。View() 每帧都会

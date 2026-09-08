@@ -14,8 +14,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	configv2 "paw/internal/config"
-	"paw/internal/model"
+	"paw/internal/capability/model"
+	configv2 "paw/internal/platform/config"
 )
 
 type configCenterPage int
@@ -156,6 +156,7 @@ func (m *appModel) handleConfigCommand(invocation string) {
 			m.addEntry(transcriptEntry{kind: entryError, title: "config", body: err.Error()})
 			return
 		}
+		m.syncRunnerModelContextLimit(m.currentModelConfig())
 		m.addEntry(transcriptEntry{kind: entrySystem, title: "config", body: configStatusSummary(m.configCenterController.Snapshot())})
 	case "status":
 		m.addEntry(transcriptEntry{kind: entrySystem, title: "config", body: configStatusSummary(m.configCenterController.Snapshot())})
@@ -1203,13 +1204,10 @@ func (m *appModel) finishConfigEdit(save bool) {
 		}
 		cfg := m.currentSettings()
 		field.set(&cfg, canonical)
-		if m.settingsConfig != nil {
-			if saveErr := m.settingsConfig.SaveSettings(cfg); saveErr != nil {
-				state.err = saveErr.Error()
-				return
-			}
+		m.saveAndApplyGeneral(cfg)
+		if state.err != "" {
+			return
 		}
-		m.syncRunnerSettings(cfg)
 		back()
 	case configEditProxyURL:
 		proxy := model.CloneProxyConfig(snapshot.Document.Proxy)
@@ -1278,6 +1276,7 @@ func (m *appModel) applyConfigOperations(operations ...configv2.Operation) {
 		state.targetSelection = configv2.CatalogSelection{}
 	}
 	state.invalidateCatalog()
+	m.syncRunnerModelContextLimit(m.currentModelConfig())
 }
 
 func (m *appModel) activateConfigCenterCatalogSelection(selection configv2.CatalogSelection) {

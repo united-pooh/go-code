@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-	"paw/internal/session"
-	"paw/internal/settings"
+	"paw/internal/platform/settings"
+	"paw/internal/storage/session"
 	"paw/internal/ui"
 )
 

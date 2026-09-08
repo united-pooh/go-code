@@ -168,7 +168,7 @@ func TestMarkdownTableStyledLongCellsKeepANSIAndBordersIntact(t *testing.T) {
 		"| 文件 | 改动 |",
 		"|---|---|",
 		"| `deepseek_schema.go` | +635 行，大量新增（strict 模式 schema 扩展） |",
-		"| `model_turn.go`（internal/loop） | +430 行 |",
+		"| `model_turn.go`（internal/runtime/loop） | +430 行 |",
 		"| `stream.go` | +147 行，流式处理逻辑扩展 |",
 		"| `responses.go` / `adapter.go` / `client.go` / `gpt_adapter.go` / `openai_compatible_adapter.go` / `deepseek_adapter.go` | 均有修改，含 DeepSeek strict 适配 |",
 	}

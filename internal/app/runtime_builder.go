@@ -3,25 +3,28 @@ package app
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
-	configv2 "paw/internal/config"
-	"paw/internal/loop"
-	coremcp "paw/internal/mcp"
-	"paw/internal/model"
-	"paw/internal/session"
-	"paw/internal/sessionactor"
-	"paw/internal/settings"
-	"paw/internal/skill"
-	"paw/internal/task"
-	"paw/internal/tool"
-	toolexec "paw/internal/tool/exec"
-	toolfile "paw/internal/tool/file"
-	toolmcp "paw/internal/tool/mcp"
-	toolwebfetch "paw/internal/tool/webfetch"
+	coremcp "paw/internal/capability/mcp"
+	"paw/internal/capability/model"
+	"paw/internal/capability/skill"
+	"paw/internal/capability/tool"
+	toolexec "paw/internal/capability/tool/exec"
+	toolfile "paw/internal/capability/tool/file"
+	toolmcp "paw/internal/capability/tool/mcp"
+	toolwebfetch "paw/internal/capability/tool/webfetch"
+	configv2 "paw/internal/platform/config"
+	"paw/internal/platform/settings"
+	"paw/internal/runtime/loop"
+	"paw/internal/runtime/sessionactor"
+	"paw/internal/runtime/task"
+	"paw/internal/storage/session"
+	"paw/internal/tokentracer"
 )
 
 func BuildWorkspaceRuntime(ctx context.Context, opts WorkspaceRuntimeOptions, configurators ...ToolConfigurator) (_ *WorkspaceRuntime, err error) {
@@ -106,6 +109,13 @@ func BuildWorkspaceRuntime(ctx context.Context, opts WorkspaceRuntimeOptions, co
 
 	client := model.NewClient(configSnapshot.Active)
 	runtime.Model = client
+	recorder, telemetryErr := tokentracer.NewRecorder(tokentracer.RecorderConfig{Home: paths.Home, Workspace: root, ParentInstanceID: os.Getenv("PAW_TRACER_PARENT_INSTANCE_ID")})
+	if telemetryErr != nil {
+		log.Printf("warning: Token Tracer collection unavailable: %v", telemetryErr)
+	} else {
+		runtime.Telemetry = recorder
+		client.SetRequestObserver(func(event model.RequestEvent) { _ = recorder.Record(event) })
+	}
 	runtime.ConfigController = configv2.NewController(configManager, client)
 	settingsController, err := settings.NewController(paths.Settings)
 	if err != nil {
@@ -135,6 +145,10 @@ func BuildWorkspaceRuntime(ctx context.Context, opts WorkspaceRuntimeOptions, co
 	}
 
 	launcher := task.NewProcessPoolLauncher(executable, root)
+	launcher.Env = append(launcher.Env, "PAW_CONFIG_HOME="+paths.Home)
+	if runtime.Telemetry != nil {
+		launcher.Env = append(launcher.Env, "PAW_TRACER_PARENT_INSTANCE_ID="+runtime.Telemetry.InstanceID())
+	}
 	runtime.taskLauncher = launcher
 	launcher.SetDangerousMode(yoloMode)
 	launcher.SetMCPBroker(broker)
@@ -150,14 +164,17 @@ func BuildWorkspaceRuntime(ctx context.Context, opts WorkspaceRuntimeOptions, co
 
 	registry := tool.NewRegistry()
 	engine := loop.NewEngineWithInstructionRoot(client, output, registry, store, sessionID, root)
-	runner, err := sessionactor.NewHost(engine, store, sessionID)
+	engine.BindContextLimitSource(func() int {
+		return model.ResolveContextLimitTokens(client.CurrentModelConfig(), settingsController.CurrentSettings().UI.ContextLimitTokens)
+	})
+	sessionHost, err := sessionactor.NewHost(engine, store, sessionID)
 	if err != nil {
 		return nil, err
 	}
-	runtime.Runner = runner
-	runtime.TurnService = NewTurnService(runner, store, coordinator, eventHub, uiAdapter)
-	runner.SetSkillRegistry(skill.NewRegistry([]string{paths.Skills}))
-	if err := runner.SetContextMaintenanceConfig(settingsController.CurrentSettings().ContextMaintenance); err != nil {
+	runtime.SessionHost = sessionHost
+	runtime.TurnService = NewTurnService(sessionHost, store, coordinator, eventHub, uiAdapter)
+	sessionHost.SetSkillRegistry(skill.NewRegistry([]string{paths.Skills}))
+	if err := sessionHost.SetContextMaintenanceConfig(settingsController.CurrentSettings().ContextMaintenance); err != nil {
 		return nil, fmt.Errorf("configure context maintenance: %w", err)
 	}
 	taskManager := task.NewManager(task.Config{
@@ -166,7 +183,7 @@ func BuildWorkspaceRuntime(ctx context.Context, opts WorkspaceRuntimeOptions, co
 		Root:                               root,
 		Settings:                           settingsController,
 		Notifier:                           notifier,
-		Context:                            runner,
+		Context:                            sessionHost,
 		Launcher:                           launcher,
 		Depth:                              opts.WorkerContext.Depth,
 		MaxDepth:                           opts.WorkerContext.MaxDepth,
@@ -175,15 +192,16 @@ func BuildWorkspaceRuntime(ctx context.Context, opts WorkspaceRuntimeOptions, co
 		DisableStartupOrphanReconciliation: opts.WorkerContext.WorkerMode,
 	})
 	runtime.TaskManager = taskManager
-	runner.SetStreamMATaskRunner(streamMATaskAdapter{manager: taskManager, parentSessionID: runner.CurrentSessionID})
-	runner.SetTaskTokensProvider(taskManager)
-	runner.SetTurnOwnedTaskCleaner(taskManager)
-	if err := RegisterBuiltinTools(registry, root, runner.SkillRoots(), taskManager, sessionID, broker, yoloMode, opts.WorkerContext.WorkerMode); err != nil {
+	sessionHost.SetStreamMATaskRunner(streamMATaskAdapter{manager: taskManager, parentSessionID: sessionHost.CurrentSessionID})
+	sessionHost.SetTaskTokensProvider(taskManager)
+	sessionHost.SetTurnOwnedTaskCleaner(taskManager)
+	readRoots := append(sessionHost.SkillRoots(), store.Root())
+	if err := RegisterBuiltinTools(registry, root, readRoots, taskManager, sessionID, broker, yoloMode, opts.WorkerContext.WorkerMode); err != nil {
 		return nil, err
 	}
 	if opts.WorkerContext.WorkerMode {
 		readState := toolfile.NewReadStateStore()
-		registry.Register(&toolfile.ReadTool{Root: root, ReadRoots: runner.SkillRoots(), ReadState: readState, AllowOutsideRoot: yoloMode})
+		registry.Register(&toolfile.ReadTool{Root: root, ReadRoots: readRoots, ReadState: readState, AllowOutsideRoot: yoloMode})
 		registry.Register(&toolfile.WriteTool{Root: root, ReadState: readState, ForbidDotPaw: true})
 		registry.Register(&toolfile.EditTool{Root: root, ReadState: readState, ForbidDotPaw: true})
 		registry.Register(&toolexec.BashTool{Root: root, Sandboxed: true})
@@ -208,13 +226,15 @@ func BuildWorkspaceRuntime(ctx context.Context, opts WorkspaceRuntimeOptions, co
 		}
 	}
 
-	runner.SetYoloModeHandler(launcher.SetDangerousMode)
+	sessionHost.SetYoloModeHandler(launcher.SetDangerousMode)
+	var configuredYoloMu sync.Mutex
 	lastConfiguredYolo := yoloMode
-	runtime.ConfigController.SetSnapshotHandler(func(snapshot configv2.Snapshot) {
-		runner.SetContextLimitTokens(model.EffectiveContextLimitTokens(snapshot.Active))
-		desiredYolo := effectiveYoloMode(opts.AllowOutsideRead, snapshot.Document)
+	runtime.ConfigController.SetSnapshotHandler(func(_ configv2.Snapshot) {
+		configuredYoloMu.Lock()
+		defer configuredYoloMu.Unlock()
+		desiredYolo := effectiveYoloMode(opts.AllowOutsideRead, runtime.ConfigController.Snapshot().Document)
 		if desiredYolo != lastConfiguredYolo {
-			_, _ = runner.SetYoloMode(desiredYolo)
+			_, _ = sessionHost.SetYoloMode(desiredYolo)
 			lastConfiguredYolo = desiredYolo
 		}
 	})

@@ -1,14 +1,15 @@
 package bubble
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 
-	configv2 "paw/internal/config"
-	"paw/internal/settings"
-	"paw/internal/theme"
+	configv2 "paw/internal/platform/config"
+	"paw/internal/platform/settings"
+	"paw/internal/ui/theme"
 )
 
 // configCenterTabLabels 是顶部 tab 行的顺序（通用 / 服务商 / 模型 /
@@ -308,7 +309,7 @@ func configGeneralFields() []configGeneralField {
 			kind:  configGeneralInt,
 			get:   func(cfg settings.Config) string { return strconv.Itoa(cfg.UI.ContextLimitTokens) },
 			set:   func(cfg *settings.Config, value string) { n, _ := strconv.Atoi(value); cfg.UI.ContextLimitTokens = n },
-			parse: parseGeneralInt,
+			parse: parseGeneralContextLimit,
 		},
 		{
 			key:     "ui.context_meter_location",
@@ -481,7 +482,7 @@ var configGeneralPresentations = map[string]configGeneralPresentation{
 	},
 	"ui.context_limit_tokens": {
 		label:       "上下文 Token 上限",
-		description: "计算用量和触发压缩时使用的 Token 上限",
+		description: "0=自动；模型专属上限优先于通用值",
 	},
 	"ui.context_meter_location": {
 		label:       "上下文用量显示位置",
@@ -606,6 +607,17 @@ func parseGeneralInt(raw string) (string, error) {
 		return "", err
 	}
 	return strconv.Itoa(n), nil
+}
+
+func parseGeneralContextLimit(raw string) (string, error) {
+	value, err := parseGeneralInt(raw)
+	if err != nil {
+		return "", err
+	}
+	if strings.HasPrefix(value, "-") {
+		return "", fmt.Errorf("must be >= 0 (0 = auto)")
+	}
+	return value, nil
 }
 
 func parseGeneralFloat(raw string) (string, error) {
@@ -844,11 +856,13 @@ func (m *appModel) saveAndApplyGeneral(cfg settings.Config) {
 	if state == nil {
 		return
 	}
-	if m.settingsConfig != nil {
-		if err := m.settingsConfig.SaveSettings(cfg); err != nil {
-			state.err = err.Error()
-			return
-		}
+	if m.settingsConfig == nil {
+		state.err = "settings controller is unavailable"
+		return
+	}
+	if err := m.settingsConfig.SaveSettings(cfg); err != nil {
+		state.err = err.Error()
+		return
 	}
 	state.err = ""
 	m.syncRunnerSettings(cfg)

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regenerates internal/model/metadata/context_windows.json from
+# Regenerates internal/capability/model/metadata/context_windows.json from
 # basellm/llm-metadata's built API (dist/api/all.json).
 #
 # Usage: scripts/gen-llm-metadata.sh [all.json] [output.json]
@@ -7,7 +7,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 INPUT="${1:-}"
-OUTPUT="${2:-$ROOT/internal/model/metadata/context_windows.json}"
+OUTPUT="${2:-$ROOT/internal/capability/model/metadata/context_windows.json}"
 
 if [[ -z "$INPUT" ]]; then
     TMP="$(mktemp -d)"

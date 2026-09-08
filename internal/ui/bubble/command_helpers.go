@@ -6,9 +6,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"os"
 	"path/filepath"
-	"paw/internal/model"
-	"paw/internal/settings"
-	"paw/internal/task"
+	"paw/internal/capability/model"
+	"paw/internal/platform/pawpath"
+	"paw/internal/platform/settings"
+	"paw/internal/runtime/task"
 	"sort"
 	"strings"
 	"time"
@@ -41,7 +42,7 @@ func (m *appModel) handleModelCommand(invocation string) tea.Cmd {
 		m.addEntry(transcriptEntry{
 			kind:  entrySystem,
 			title: "model",
-			body:  fmt.Sprintf("id=%s provider=%s base=%s path=%s model=%s models=%s context=%d retries=%d key=%s", stableID, cfg.Provider, cfg.APIBaseURL, cfg.APIPath, cfg.Model, strings.Join(model.AvailableModels(cfg), ","), model.EffectiveContextLimitTokens(cfg), cfg.RetryCount, cfg.APIKeyEnvName) + body,
+			body:  fmt.Sprintf("id=%s provider=%s base=%s path=%s model=%s models=%s context=%d retries=%d key=%s", stableID, cfg.Provider, cfg.APIBaseURL, cfg.APIPath, cfg.Model, strings.Join(model.AvailableModels(cfg), ","), m.effectiveContextLimit(cfg), cfg.RetryCount, cfg.APIKeyEnvName) + body,
 		})
 	default:
 		if m.configCenterController != nil {
@@ -56,7 +57,7 @@ func (m *appModel) handleModelCommand(invocation string) tea.Cmd {
 				}
 				cfg := m.currentModelConfig()
 				m.syncRunnerModelContextLimit(cfg)
-				m.addEntry(transcriptEntry{kind: entrySystem, title: "model", body: formatModelSwitchBlock(cfg)})
+				m.addEntry(transcriptEntry{kind: entrySystem, title: "model", body: formatModelSwitchBlock(cfg, m.currentSettings().UI.ContextLimitTokens)})
 				return nil
 			}
 		}
@@ -101,7 +102,7 @@ func (m *appModel) applyModelConfigFromCommand(cfg model.Config) {
 	m.addEntry(transcriptEntry{
 		kind:  entrySystem,
 		title: "model",
-		body:  formatModelSwitchBlock(cfg),
+		body:  formatModelSwitchBlock(cfg, m.currentSettings().UI.ContextLimitTokens),
 	})
 }
 
@@ -175,14 +176,22 @@ func (m *appModel) handleExportCommand(invocation string) {
 }
 
 func (m appModel) exportPath(arg string) (string, error) {
-	root, err := os.Getwd()
-	if err != nil {
-		return "", err
+	root := workspaceRootOf(m.runner)
+	if root == "" {
+		var err error
+		root, err = os.Getwd()
+		if err != nil {
+			return "", err
+		}
 	}
 	arg = strings.TrimSpace(arg)
 	if arg == "" {
+		projectDir, err := pawpath.ProjectDir(root)
+		if err != nil {
+			return "", err
+		}
 		name := "conversation-" + time.Now().Format("2006-01-02-150405") + ".txt"
-		return filepath.Join(root, ".paw", "exports", name), nil
+		return filepath.Join(projectDir, "exports", name), nil
 	}
 	if !strings.HasSuffix(arg, ".txt") {
 		arg = strings.TrimSuffix(arg, filepath.Ext(arg)) + ".txt"
@@ -357,7 +366,7 @@ func (m appModel) statusText(sessionID string) string {
 		sessionID,
 		modelCfg.Provider,
 		modelCfg.Model,
-		model.EffectiveContextLimitTokens(modelCfg),
+		stats.LimitTokens,
 		cfg.Task.DefaultContextMode,
 		cfg.Task.DefaultRunMode,
 		cfg.UI.ContextMeterLocation,
@@ -468,7 +477,7 @@ func resultDisplayName(result task.Result) string {
 
 func (m *appModel) syncRunnerModelContextLimit(cfg model.Config) {
 	if setter, ok := m.runner.(interface{ SetContextLimitTokens(int) }); ok {
-		setter.SetContextLimitTokens(model.EffectiveContextLimitTokens(cfg))
+		setter.SetContextLimitTokens(m.effectiveContextLimit(cfg))
 	}
 }
 

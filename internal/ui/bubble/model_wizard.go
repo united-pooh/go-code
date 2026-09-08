@@ -7,7 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"paw/internal/model"
+	"paw/internal/capability/model"
 )
 
 // currentModelConfig 返回当前模型配置；没有控制器时返回空配置。
@@ -228,7 +228,7 @@ func (m appModel) applyModelWizardSelection() appModel {
 		m.addEntry(transcriptEntry{
 			kind:  entrySystem,
 			title: "model",
-			body:  formatModelSwitchBlock(cfg),
+			body:  formatModelSwitchBlock(cfg, m.currentSettings().UI.ContextLimitTokens),
 		})
 		return m
 	}
@@ -258,7 +258,7 @@ func (m appModel) applyModelWizardSelection() appModel {
 	m.addEntry(transcriptEntry{
 		kind:  entrySystem,
 		title: "model",
-		body:  formatModelSwitchBlock(cfg),
+		body:  formatModelSwitchBlock(cfg, m.currentSettings().UI.ContextLimitTokens),
 	})
 	return m
 }

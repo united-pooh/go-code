@@ -9,6 +9,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"paw/internal/platform/pawpath"
 )
 
 type RecentWorkspace struct {
@@ -30,11 +32,11 @@ type RecentWorkspaceStore struct {
 
 func NewRecentWorkspaceStore(path string) (*RecentWorkspaceStore, error) {
 	if path == "" {
-		home, err := os.UserHomeDir()
+		home, err := pawpath.Home()
 		if err != nil {
 			return nil, fmt.Errorf("resolve recent workspace home: %w", err)
 		}
-		path = filepath.Join(home, ".paw", "recent-workspaces.json")
+		path = filepath.Join(home, "recent-workspaces.json")
 	}
 	absolute, err := filepath.Abs(filepath.Clean(path))
 	if err != nil {

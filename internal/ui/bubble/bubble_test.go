@@ -18,14 +18,15 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
 
-	"paw/internal/loop"
+	modelcfg "paw/internal/capability/model"
+	"paw/internal/capability/skill"
 	"paw/internal/message"
-	modelcfg "paw/internal/model"
-	"paw/internal/settings"
-	"paw/internal/skill"
-	taskpkg "paw/internal/task"
-	"paw/internal/theme"
+	"paw/internal/platform/pawpath"
+	"paw/internal/platform/settings"
+	"paw/internal/runtime/loop"
+	taskpkg "paw/internal/runtime/task"
 	"paw/internal/ui"
+	"paw/internal/ui/theme"
 )
 
 // fakeRunner 记录测试中的提交输入，并模拟对话 runner。
@@ -882,6 +883,8 @@ func TestModelWizardSelectsConfiguredModelUnderProvider(t *testing.T) {
 
 // TestExportCommandWritesExplicitAndDefaultTranscriptFiles verifies /export paths and content.
 func TestExportCommandWritesExplicitAndDefaultTranscriptFiles(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PAW_CONFIG_HOME", t.TempDir())
 	root := t.TempDir()
 	t.Chdir(root)
 
@@ -918,12 +921,19 @@ func TestExportCommandWritesExplicitAndDefaultTranscriptFiles(t *testing.T) {
 	if !handled || cmd != nil {
 		t.Fatalf("/export handled/cmd = %v/%v", handled, cmd)
 	}
-	exports, err := filepath.Glob(filepath.Join(root, ".paw", "exports", "conversation-*.txt"))
+	projectDir, err := pawpath.ProjectDir("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	exports, err := filepath.Glob(filepath.Join(projectDir, "exports", "conversation-*.txt"))
 	if err != nil {
 		t.Fatalf("Glob() error = %v", err)
 	}
 	if len(exports) != 1 {
 		t.Fatalf("exports = %#v, want 1 generated transcript", exports)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".paw")); !os.IsNotExist(err) {
+		t.Fatalf("export created workspace .paw: %v", err)
 	}
 	info, err = os.Stat(exports[0])
 	if err != nil {
@@ -4732,7 +4742,7 @@ func TestFormatCompactTokenCountUsesThreeDigitsAndUnits(t *testing.T) {
 func TestNarrowLayoutKeepsInputVisible(t *testing.T) {
 	runner := &fakeRunner{
 		stats: loop.ContextStats{
-			UsedTokens:  settings.DefaultContextLimitTokens / 2,
+			UsedTokens:  modelcfg.DefaultContextLimitTokens / 2,
 			CacheTokens: 0,
 		},
 	}

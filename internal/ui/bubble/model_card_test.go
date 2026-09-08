@@ -7,7 +7,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
-	"paw/internal/model"
+	"paw/internal/capability/model"
 )
 
 func TestFormatModelSwitchBlockOmitsEmptyAttrsAndKeepsOrder(t *testing.T) {
@@ -19,7 +19,7 @@ func TestFormatModelSwitchBlockOmitsEmptyAttrsAndKeepsOrder(t *testing.T) {
 		RetryCount:         3,
 		APIKeyEnvName:      "OPENROUTER_API_KEY",
 	}
-	body := formatModelSwitchBlock(cfg)
+	body := formatModelSwitchBlock(cfg, 0)
 	if !isModelCardBlock(body) {
 		t.Fatalf("generated body not detected as model card block:\n%s", body)
 	}
@@ -45,7 +45,7 @@ func TestFormatModelSwitchBlockOmitsEmptyAttrsAndKeepsOrder(t *testing.T) {
 }
 
 func TestFormatModelSwitchBlockAlwaysWritesRetries(t *testing.T) {
-	body := formatModelSwitchBlock(model.Config{Provider: "p1", Model: "m1"})
+	body := formatModelSwitchBlock(model.Config{Provider: "p1", Model: "m1"}, 0)
 	if !strings.Contains(body, `retries="0"`) {
 		t.Fatalf("retries=0 should still be written:\n%s", body)
 	}
@@ -53,7 +53,7 @@ func TestFormatModelSwitchBlockAlwaysWritesRetries(t *testing.T) {
 
 func TestModelCardBlockEscapeRoundTrip(t *testing.T) {
 	cfg := model.Config{Provider: `a&b"c<d>`, Model: "m&1"}
-	body := formatModelSwitchBlock(cfg)
+	body := formatModelSwitchBlock(cfg, 0)
 	info, ok := parseModelCardBlock(body)
 	if !ok {
 		t.Fatalf("parse failed:\n%s", body)
@@ -88,7 +88,7 @@ func TestRenderModelSwitchCardLayout(t *testing.T) {
 		RetryCount:         3,
 		APIKeyEnvName:      "OPENROUTER_API_KEY",
 	}
-	rendered := renderModelSwitchCard(formatModelSwitchBlock(cfg), 60)
+	rendered := renderModelSwitchCard(formatModelSwitchBlock(cfg, 0), 60)
 	plain := ansi.Strip(rendered)
 	for _, want := range []string{
 		"✓ 模型已生效",
@@ -111,7 +111,7 @@ func TestRenderModelSwitchCardLayout(t *testing.T) {
 }
 
 func TestRenderModelSwitchCardHidesEmptyDetails(t *testing.T) {
-	body := formatModelSwitchBlock(model.Config{Provider: "p1", Model: "m1"})
+	body := formatModelSwitchBlock(model.Config{Provider: "p1", Model: "m1"}, 0)
 	plain := ansi.Strip(renderModelSwitchCard(body, 40))
 	for _, banned := range []string{"base", "path", "key env"} {
 		if strings.Contains(plain, banned) {
@@ -131,7 +131,7 @@ func TestRenderModelSwitchCardFallsBackOnPlainBody(t *testing.T) {
 }
 
 func TestRenderEntryRendersModelCardWithoutLabel(t *testing.T) {
-	body := formatModelSwitchBlock(model.Config{Provider: "p1", Model: "m1"})
+	body := formatModelSwitchBlock(model.Config{Provider: "p1", Model: "m1"}, 0)
 	entry := transcriptEntry{kind: entrySystem, title: "model", body: body}
 	rendered := ansi.Strip(renderEntry(entry, 80))
 	trimmed := strings.TrimLeft(rendered, " ")

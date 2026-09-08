@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"paw/internal/loop"
-	selecttool "paw/internal/tool/select"
+	selecttool "paw/internal/capability/tool/select"
+	"paw/internal/runtime/loop"
 )
 
 var (

@@ -7,4 +7,4 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 go test -run '^$' -bench 'BenchmarkDurableAskRoundtrip|BenchmarkColdActivation' \
-  -benchtime 2s -count 3 ./internal/actor/
+  -benchtime 2s -count 3 ./internal/runtime/actor/

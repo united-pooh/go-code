@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"paw/internal/capability/model"
 	"paw/internal/message"
-	"paw/internal/model"
 )
 
 // 中英文检测正则：英文词允许撇号/连字符（don't、well-known），中文词为纯汉字。

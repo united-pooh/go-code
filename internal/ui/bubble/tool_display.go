@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	filetool "paw/internal/capability/tool/file"
 	"paw/internal/todo"
-	filetool "paw/internal/tool/file"
 )
 
 type toolDisplay struct {

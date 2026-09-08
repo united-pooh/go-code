@@ -14,13 +14,13 @@ import (
 	"github.com/charmbracelet/bubbles/cursor"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
-	"paw/internal/model"
-	"paw/internal/settings"
-	"paw/internal/skill"
-	"paw/internal/theme"
-	selecttool "paw/internal/tool/select"
+	"paw/internal/capability/model"
+	"paw/internal/capability/skill"
+	selecttool "paw/internal/capability/tool/select"
+	"paw/internal/platform/settings"
 	"paw/internal/ui/bubble/textareax"
 	"paw/internal/ui/bubble/viewportx"
+	"paw/internal/ui/theme"
 )
 
 // newModel 创建完整的 TUI 状态模型，并初始化输入框、滚动区和系统消息。
@@ -50,7 +50,7 @@ func newModel(ctx context.Context, runner Runner, sessionID string, controller M
 		if controller != nil {
 			modelCfg = controller.CurrentModelConfig()
 		}
-		setter.SetContextLimitTokens(model.EffectiveContextLimitTokens(modelCfg))
+		setter.SetContextLimitTokens(model.ResolveContextLimitTokens(modelCfg, cfg.UI.ContextLimitTokens))
 	}
 	selectedTheme, ok := theme.ByID(cfg.UI.Theme)
 	if !ok {

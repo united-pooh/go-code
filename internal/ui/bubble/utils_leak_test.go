@@ -7,7 +7,7 @@ import (
 
 func TestStripEmbeddedToolUseJSONRepairsInvalidEscapes(t *testing.T) {
 	leak := "{\"type\":\"tool_use\",\"id\":\"call_1\",\"name\":\"Grep\"," +
-		"\"input\":{\"pattern\":\"\\\\.`\",\"path\":\"internal/theme\"}}"
+		"\"input\":{\"pattern\":\"\\\\.`\",\"path\":\"internal/ui/theme\"}}"
 
 	got := stripEmbeddedToolUseJSON("前文 " + leak + " 后文")
 	if strings.Contains(got, "tool_use") || strings.Contains(got, "Grep") {
@@ -20,7 +20,7 @@ func TestStripEmbeddedToolUseJSONRepairsInvalidEscapes(t *testing.T) {
 
 func TestStripToolUseFencesRepairsInvalidEscapes(t *testing.T) {
 	leak := "```\n{\"type\":\"tool_use\",\"id\":\"call_1\",\"name\":\"Grep\"," +
-		"\"input\":{\"pattern\":\"\\\\.`\",\"path\":\"internal/theme\"}}\n```"
+		"\"input\":{\"pattern\":\"\\\\.`\",\"path\":\"internal/ui/theme\"}}\n```"
 
 	got := stripToolUseFences(leak)
 	if strings.TrimSpace(got) != "" {

@@ -1,10 +1,10 @@
 package app
 
 import (
-	"paw/internal/mcp"
+	"paw/internal/capability/mcp"
+	"paw/internal/capability/tool"
+	selecttool "paw/internal/capability/tool/select"
 	"paw/internal/todo"
-	"paw/internal/tool"
-	selecttool "paw/internal/tool/select"
 	"paw/internal/ui"
 )
 

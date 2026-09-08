@@ -9,7 +9,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"paw/internal/model"
+	"paw/internal/capability/model"
 )
 
 // escapeTaskBlockAttrValue 转义结构化块属性值，与 unescapeTaskBlockAttr 对偶。
@@ -24,7 +24,7 @@ func escapeTaskBlockAttrValue(value string) string {
 
 // formatModelSwitchBlock 生成模型切换成功条目的结构化块。
 // 属性固定顺序，空值整体省略；retries 恒输出（0 也是有效配置）。
-func formatModelSwitchBlock(cfg model.Config) string {
+func formatModelSwitchBlock(cfg model.Config, generalLimit int) string {
 	type attr struct{ key, value string }
 	pairs := []attr{
 		{"provider", strings.TrimSpace(cfg.Provider)},
@@ -32,7 +32,7 @@ func formatModelSwitchBlock(cfg model.Config) string {
 		{"base", strings.TrimSpace(cfg.APIBaseURL)},
 		{"path", strings.TrimSpace(cfg.APIPath)},
 	}
-	if limit := model.EffectiveContextLimitTokens(cfg); limit > 0 {
+	if limit := model.ResolveContextLimitTokens(cfg, generalLimit); limit > 0 {
 		pairs = append(pairs, attr{"context", strconv.Itoa(limit)})
 	}
 	pairs = append(pairs, attr{"retries", strconv.Itoa(cfg.RetryCount)})

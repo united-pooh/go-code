@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/charmbracelet/x/ansi"
-	"paw/internal/loop"
-	selecttool "paw/internal/tool/select"
+	selecttool "paw/internal/capability/tool/select"
+	"paw/internal/runtime/loop"
 )
 
 func TestP5ViewsMatchGolden(t *testing.T) {

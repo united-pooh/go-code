@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	configv2 "paw/internal/config"
+	configv2 "paw/internal/platform/config"
 	uiheadless "paw/internal/ui/headless"
 )
 
@@ -123,8 +123,8 @@ func TestBuildWorkspaceRuntimeUsesExplicitRoot(t *testing.T) {
 	}
 	defer func() { _ = runtime.Close() }()
 
-	if runtime.Root != workspace || runtime.Runner.WorkspaceRoot() != workspace {
-		t.Fatalf("runtime root = %q, runner root = %q", runtime.Root, runtime.Runner.WorkspaceRoot())
+	if runtime.Root != workspace || runtime.SessionHost.WorkspaceRoot() != workspace {
+		t.Fatalf("runtime root = %q, runner root = %q", runtime.Root, runtime.SessionHost.WorkspaceRoot())
 	}
 	if runtime.ConfigController.Manager().Paths().WorkspaceRoot != workspace {
 		t.Fatalf("config workspace root = %q", runtime.ConfigController.Manager().Paths().WorkspaceRoot)

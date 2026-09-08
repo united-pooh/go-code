@@ -5,6 +5,8 @@
 .playwright-mcp/
 .claude/
 /agent
+/bin/
+/paw
 .paw/
 .codewhale/
 .env
@@ -48,8 +50,8 @@ test-results/
 index.html
 !internal/tokentracer/dashboard/index.html
 !internal/tokentracer/dashboard/dist/index.html
-!internal/web/ui/index.html
-!internal/web/ui/dist/index.html
+!internal/ui/web/ui/index.html
+!internal/ui/web/ui/dist/index.html
 qa-report.json
 diff-demo.md
 .worktrees/
@@ -64,9 +66,9 @@ quant-mcp/
 quant-study/
 src/quant_mcp/
 examples/
-docs/
+/docs/local/
 memory.md
-memory/
+/memory/
 .agents/
 .agent/
 skills/

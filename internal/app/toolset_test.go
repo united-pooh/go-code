@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"paw/internal/session"
+	"paw/internal/capability/tool"
+	"paw/internal/storage/session"
 	"paw/internal/todo"
-	"paw/internal/tool"
 )
 
 func TestToolsetsRemainIsolatedAcrossRuntimesAndRebinds(t *testing.T) {

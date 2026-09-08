@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	configv2 "paw/internal/config"
-	modelcfg "paw/internal/model"
+	modelcfg "paw/internal/capability/model"
+	configv2 "paw/internal/platform/config"
 )
 
 func advanceModelWizard(t *testing.T, model appModel, msg tea.KeyMsg) appModel {

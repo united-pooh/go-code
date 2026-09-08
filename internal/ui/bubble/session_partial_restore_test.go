@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"paw/internal/loop"
 	"paw/internal/message"
-	"paw/internal/session"
+	"paw/internal/runtime/loop"
+	"paw/internal/storage/session"
 )
 
 func TestSessionRestoreShowsPartialAssistantAndRecoveryError(t *testing.T) {

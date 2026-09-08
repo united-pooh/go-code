@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"paw/internal/settings"
+	"paw/internal/platform/settings"
 )
 
 // TestThinkingCharModePlaysBackIncrementally 验证 char 模式下 thinking 流同样
@@ -38,7 +38,7 @@ func TestThinkingCharModePlaysBackIncrementally(t *testing.T) {
 	if got := model.transcript[thinkingIndex].body; got != "a" {
 		t.Fatalf("first frame thinking body = %q, want exactly one char", got)
 	}
-	next, _ = model.Update(cursorFrameMsg(frame.Add(2*cursorFrameInterval)))
+	next, _ = model.Update(cursorFrameMsg(frame.Add(2 * cursorFrameInterval)))
 	model = next.(appModel)
 	if got := model.transcript[thinkingIndex].body; got != "ab" {
 		t.Fatalf("second frame thinking body = %q, want typewriter pace", got)
@@ -116,7 +116,7 @@ func TestAssistantCharModeKeepsTypewriterPaceWithoutBacklog(t *testing.T) {
 	if got := model.transcript[0].body; got != "a" {
 		t.Fatalf("first frame body = %q, want exactly one char without backlog", got)
 	}
-	next, _ = model.Update(cursorFrameMsg(frame.Add(2*cursorFrameInterval)))
+	next, _ = model.Update(cursorFrameMsg(frame.Add(2 * cursorFrameInterval)))
 	model = next.(appModel)
 	if got := model.transcript[0].body; got != "ab" {
 		t.Fatalf("second frame body = %q, want typewriter pace preserved", got)

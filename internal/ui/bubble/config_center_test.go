@@ -11,8 +11,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 
-	configv2 "paw/internal/config"
-	modelcfg "paw/internal/model"
+	modelcfg "paw/internal/capability/model"
+	configv2 "paw/internal/platform/config"
 )
 
 type fakeConfigCenterDiscoverer struct {

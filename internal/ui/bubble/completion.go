@@ -4,8 +4,8 @@ package bubble
 import (
 	"fmt"
 	"os"
-	"paw/internal/complete"
-	"paw/internal/skill"
+	"paw/internal/capability/skill"
+	"paw/internal/ui/complete"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -66,7 +66,7 @@ func (c *completion) navigateDown() {
 // 触发检测
 // ──────────────────────────────────────────────────────────────────────────────
 
-// 触发检测与路径解析的纯实现已提取到 internal/complete，供 TUI 与 Web 复用；
+// 触发检测与路径解析的纯实现已提取到 internal/ui/complete，供 TUI 与 Web 复用；
 // 以下为保持既有调用与测试不变的薄封装。
 
 func detectAtTrigger(value string) (atByteIndex int, query string) {

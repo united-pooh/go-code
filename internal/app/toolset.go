@@ -3,17 +3,17 @@ package app
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
-	"paw/internal/plan"
-	"paw/internal/session"
+	"paw/internal/capability/tool"
+	"paw/internal/capability/tool/memory"
+	selecttool "paw/internal/capability/tool/select"
+	transcripttool "paw/internal/capability/tool/transcript"
+	"paw/internal/platform/pawpath"
+	"paw/internal/runtime/plan"
+	"paw/internal/storage/session"
 	"paw/internal/todo"
-	"paw/internal/tool"
-	"paw/internal/tool/memory"
-	selecttool "paw/internal/tool/select"
-	transcripttool "paw/internal/tool/transcript"
 )
 
 type Toolset struct {
@@ -92,11 +92,11 @@ func (t *Toolset) BindSession(store *session.JSONLStore, sessionID, progressPath
 	}
 	t.searchTranscript.Bind(store, sessionID)
 
-	home, err := os.UserHomeDir()
+	home, err := pawpath.Home()
 	if err != nil {
 		return fmt.Errorf("resolve memory home: %w", err)
 	}
-	memoryPath := filepath.Join(home, ".paw", "memory.md")
+	memoryPath := filepath.Join(home, "memory.md")
 	ariadnePath := filepath.Join(store.Root(), "sessions", sessionID, "ariadne.md")
 	record := func(ctx context.Context, kind session.StateEventKind, summary string) error {
 		_, err := store.AppendStateEvent(ctx, sessionID, kind, summary)

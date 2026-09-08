@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"os/exec"
+	"paw/internal/platform/pawpath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -20,26 +21,37 @@ type ServerConfig struct {
 }
 
 type Server struct {
-	tracer *Tracer
-	cfg    ServerConfig
-	server *http.Server
-	url    string
+	tracer   *Tracer
+	cfg      ServerConfig
+	server   *http.Server
+	url      string
+	ledger   *LedgerReader
+	done     chan struct{}
+	serveErr error
 }
 
 func NewServer(tracer *Tracer, cfg ServerConfig) *Server {
 	if strings.TrimSpace(cfg.Host) == "" {
 		cfg.Host = "127.0.0.1"
 	}
-	return &Server{tracer: tracer, cfg: cfg}
+	server := &Server{tracer: tracer, cfg: cfg}
+	if home, err := pawpath.Home(); err == nil {
+		server.ledger = NewLedgerReader(home)
+	}
+	return server
 }
 
 func (s *Server) Start(ctx context.Context) error {
-	if s == nil || s.tracer == nil {
-		return fmt.Errorf("token tracer server requires a tracer")
+	if s == nil || (s.tracer == nil && s.ledger == nil) {
+		return fmt.Errorf("token tracer server requires a tracer or telemetry store")
 	}
 	host := strings.TrimSpace(s.cfg.Host)
 	if host == "" {
 		host = "127.0.0.1"
+	}
+	ip := net.ParseIP(host)
+	if !strings.EqualFold(host, "localhost") && (ip == nil || !ip.IsLoopback()) {
+		return fmt.Errorf("token tracer listen address must be loopback")
 	}
 	addr := net.JoinHostPort(host, strconv.Itoa(s.cfg.Port))
 	listener, err := net.Listen("tcp", addr)
@@ -47,25 +59,48 @@ func (s *Server) Start(ctx context.Context) error {
 		return fmt.Errorf("start token tracer listener: %w", err)
 	}
 	actual := listener.Addr().(*net.TCPAddr)
-	s.url = fmt.Sprintf("http://%s:%d", host, actual.Port)
-	s.tracer.SetServerURL(s.url)
+	s.url = "http://" + net.JoinHostPort(host, strconv.Itoa(actual.Port))
+	if s.tracer != nil {
+		s.tracer.SetServerURL(s.url)
+	}
 
-	s.server = &http.Server{Handler: s.handler()}
+	s.server = &http.Server{Handler: s.localOnly(s.handler()), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: time.Minute, MaxHeaderBytes: 16 << 10}
+	s.done = make(chan struct{})
 	go func() {
-		<-ctx.Done()
+		select {
+		case <-ctx.Done():
+		case <-s.done:
+			return
+		}
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		_ = s.Shutdown(shutdownCtx)
 	}()
 	go func() {
+		defer close(s.done)
 		if err := s.server.Serve(listener); err != nil && err != http.ErrServerClosed {
-			s.tracer.RecordEvent("server_error", map[string]any{"error": err.Error()})
+			s.serveErr = err
+			if s.tracer != nil {
+				s.tracer.RecordEvent("server_error", map[string]any{"error": err.Error()})
+			}
 		}
 	}()
 	if s.cfg.OpenBrowser {
 		openBrowser(s.url)
 	}
 	return nil
+}
+
+func (s *Server) Wait(ctx context.Context) error {
+	if s == nil || s.done == nil {
+		return fmt.Errorf("token tracer server not started")
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-s.done:
+		return s.serveErr
+	}
 }
 
 func (s *Server) URL() string {
@@ -83,6 +118,10 @@ func (s *Server) Shutdown(ctx context.Context) error {
 }
 
 func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
+	if s.tracer == nil {
+		http.Error(w, "live debug instance unavailable", http.StatusNotFound)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	if err := json.NewEncoder(w).Encode(s.tracer.Snapshot()); err != nil {
@@ -91,6 +130,10 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
+	if s.tracer == nil {
+		http.Error(w, "live debug instance unavailable", http.StatusNotFound)
+		return
+	}
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "streaming unsupported", http.StatusInternalServerError)

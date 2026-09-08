@@ -2,9 +2,9 @@ package bubble
 
 import (
 	"fmt"
-	"paw/internal/loop"
-	"paw/internal/model"
-	"paw/internal/settings"
+	"paw/internal/capability/model"
+	"paw/internal/platform/settings"
+	"paw/internal/runtime/loop"
 	"strconv"
 	"strings"
 )
@@ -44,8 +44,12 @@ func trimTrailingDecimalZeros(text string) string {
 	return strings.TrimRight(text, ".")
 }
 
+func (m appModel) effectiveContextLimit(cfg model.Config) int {
+	return model.ResolveContextLimitTokens(cfg, m.currentSettings().UI.ContextLimitTokens)
+}
+
 func (m appModel) contextStats() loop.ContextStats {
-	limit := model.EffectiveContextLimitTokens(m.currentModelConfig())
+	limit := m.effectiveContextLimit(m.currentModelConfig())
 	if provider, ok := m.runner.(contextStatsProvider); ok {
 		return provider.ContextStats(limit, m.input.Value())
 	}

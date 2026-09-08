@@ -7,13 +7,14 @@ import (
 	"sync"
 	"time"
 
-	configv2 "paw/internal/config"
-	"paw/internal/mcp"
-	"paw/internal/model"
-	"paw/internal/session"
-	"paw/internal/sessionactor"
-	"paw/internal/settings"
-	"paw/internal/task"
+	"paw/internal/capability/mcp"
+	"paw/internal/capability/model"
+	configv2 "paw/internal/platform/config"
+	"paw/internal/platform/settings"
+	"paw/internal/runtime/sessionactor"
+	"paw/internal/runtime/task"
+	"paw/internal/storage/session"
+	"paw/internal/tokentracer"
 )
 
 const defaultRuntimeCloseTimeout = 5 * time.Second
@@ -25,7 +26,7 @@ type runtimeCloseStage struct {
 
 type WorkspaceRuntime struct {
 	Root               string
-	Runner             *sessionactor.Host
+	SessionHost        *sessionactor.Host
 	SessionID          string
 	Model              *model.Client
 	ConfigController   *configv2.Controller
@@ -42,6 +43,7 @@ type WorkspaceRuntime struct {
 	Interactions       *InteractionHub
 	TraceDetail        *TraceDetailStore
 	EventHub           *EventHub
+	Telemetry          *tokentracer.Recorder
 
 	configManager *configv2.Manager
 	taskLauncher  *task.ProcessPoolLauncher
@@ -109,8 +111,8 @@ func (r *WorkspaceRuntime) initializeCloseStages() {
 			return errors.Join(errs...)
 		}},
 		{name: "runner", close: func(context.Context) error {
-			if r.Runner != nil {
-				r.Runner.Close()
+			if r.SessionHost != nil {
+				r.SessionHost.Close()
 			}
 			return nil
 		}},
@@ -123,6 +125,7 @@ func (r *WorkspaceRuntime) initializeCloseStages() {
 			}
 			return nil
 		}},
+		{name: "telemetry", close: func(context.Context) error { return r.Telemetry.Close() }},
 		{name: "events", close: func(context.Context) error {
 			if r.EventHub == nil {
 				return nil

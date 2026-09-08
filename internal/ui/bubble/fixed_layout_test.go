@@ -10,9 +10,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
-	"paw/internal/settings"
-	"paw/internal/task"
-	selecttool "paw/internal/tool/select"
+	selecttool "paw/internal/capability/tool/select"
+	"paw/internal/platform/settings"
+	"paw/internal/runtime/task"
 )
 
 func TestComputeTUILayoutKeepsOuterFrameStable(t *testing.T) {

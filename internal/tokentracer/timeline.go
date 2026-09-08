@@ -52,31 +52,33 @@ type TimelineRow struct {
 }
 
 type TimelineMarker struct {
-	Type   string `json:"type"`
-	Time   string `json:"time"`
-	Label  string `json:"label"`
-	Detail string `json:"detail,omitempty"`
-	Status string `json:"status,omitempty"`
-	Usage  *Usage `json:"usage,omitempty"`
+	RequestID string `json:"request_id,omitempty"`
+	Type      string `json:"type"`
+	Time      string `json:"time"`
+	Label     string `json:"label"`
+	Detail    string `json:"detail,omitempty"`
+	Status    string `json:"status,omitempty"`
+	Usage     *Usage `json:"usage,omitempty"`
 }
 
 type timelineBuilder struct {
-	pipeline      Pipeline
-	events        []Event
-	now           time.Time
-	rows          map[string]*TimelineRow
-	order         []string
-	sessionRows   map[string]string
-	agentRows     map[string]string
-	stageNames    map[string]string
-	stageErrors   map[string]string
-	agentNames    map[string]string
-	taskNames     map[string]string
-	minTime       time.Time
-	maxTime       time.Time
-	totalUsage    Usage
-	grandTotal    int
-	timelineError string
+	pipeline       Pipeline
+	events         []Event
+	now            time.Time
+	rows           map[string]*TimelineRow
+	order          []string
+	sessionRows    map[string]string
+	agentRows      map[string]string
+	stageNames     map[string]string
+	stageErrors    map[string]string
+	agentNames     map[string]string
+	taskNames      map[string]string
+	requestMarkers map[string]int
+	minTime        time.Time
+	maxTime        time.Time
+	totalUsage     Usage
+	grandTotal     int
+	timelineError  string
 }
 
 func buildTimeline(pipeline Pipeline, events []Event, now time.Time) Timeline {
@@ -84,17 +86,18 @@ func buildTimeline(pipeline Pipeline, events []Event, now time.Time) Timeline {
 		now = time.Now().UTC()
 	}
 	b := &timelineBuilder{
-		pipeline:    pipeline,
-		events:      events,
-		now:         now,
-		rows:        make(map[string]*TimelineRow),
-		sessionRows: make(map[string]string),
-		agentRows:   make(map[string]string),
-		stageNames:  make(map[string]string),
-		stageErrors: make(map[string]string),
-		agentNames:  make(map[string]string),
-		taskNames:   make(map[string]string),
-		totalUsage:  pipeline.Total.Normalized(),
+		pipeline:       pipeline,
+		events:         events,
+		now:            now,
+		rows:           make(map[string]*TimelineRow),
+		sessionRows:    make(map[string]string),
+		agentRows:      make(map[string]string),
+		stageNames:     make(map[string]string),
+		stageErrors:    make(map[string]string),
+		agentNames:     make(map[string]string),
+		taskNames:      make(map[string]string),
+		requestMarkers: make(map[string]int),
+		totalUsage:     pipeline.Total.Normalized(),
 	}
 	b.collectPipelineRows()
 	b.collectEventRows()
@@ -230,7 +233,7 @@ func (b *timelineBuilder) collectEventRows() {
 				b.addMarker(row, eventTime, "failure", "failed", row.Error, "failed", nil)
 			}
 		case "api_call":
-			usage := usageValue(data["usage"]).Normalized()
+			usage := usageValue(data["usage"])
 			row := b.findRow(stageID, agentID, sessionID, invocation)
 			if row == nil {
 				row = b.ensureRow(agentRowID(stageID, agentID, sessionID, invocation), "agent", stageID, agentID, invocation)
@@ -242,10 +245,24 @@ func (b *timelineBuilder) collectEventRows() {
 				b.rememberAgent(stageID, agentID, row.ID)
 			}
 			row.Usage = row.Usage.Add(usage)
-			row.Calls++
 			row.Provider = firstNonEmpty(stringValue(data, "provider"), row.Provider)
 			row.Model = firstNonEmpty(stringValue(data, "model"), row.Model)
-			b.addMarker(row, eventTime, "api_call", "api", usageSummary(usage), "usage", &usage)
+			requestID := stringValue(data, "request_id")
+			key := row.ID + "\x00" + requestID
+			if index, ok := b.requestMarkers[key]; requestID != "" && ok {
+				marker := &row.Markers[index]
+				combined := marker.Usage.Add(usage)
+				marker.Usage = &combined
+				marker.Detail = usageSummary(combined)
+			} else {
+				row.Calls++
+				b.addMarker(row, eventTime, "api_call", "api", usageSummary(usage), "usage", &usage)
+				if requestID != "" {
+					index := len(row.Markers) - 1
+					row.Markers[index].RequestID = requestID
+					b.requestMarkers[key] = index
+				}
+			}
 		case "streamma.agent.step.committed":
 			row := b.findRow(stageID, agentID, sessionID, invocation)
 			if row == nil && agentID != "" {
@@ -730,19 +747,19 @@ func intValue(data map[string]any, key string) int {
 func usageValue(value any) Usage {
 	switch usage := value.(type) {
 	case Usage:
-		return usage.Normalized()
+		return usage
 	case *Usage:
 		if usage == nil {
 			return Usage{}
 		}
-		return usage.Normalized()
+		return *usage
 	case map[string]any:
 		return Usage{
 			Input:         intAny(usage["input"]),
 			Output:        intAny(usage["output"]),
 			CacheRead:     intAny(usage["cache_read"]),
 			CacheCreation: intAny(usage["cache_creation"]),
-		}.Normalized()
+		}
 	default:
 		return Usage{}
 	}

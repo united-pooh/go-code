@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"paw/internal/message"
-	"paw/internal/session"
-	"paw/internal/task"
+	"paw/internal/runtime/task"
+	"paw/internal/storage/session"
 )
 
 type fakeResolvedRecordStore struct {
