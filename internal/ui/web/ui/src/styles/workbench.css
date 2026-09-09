@@ -503,6 +503,96 @@ max-width: 240px; text-overflow: ellipsis; cursor: pointer;
 }
 .deck-field select:hover:not(:disabled) { color: var(--text); }
 .deck-field select:disabled { opacity: .5; cursor: default; }
+
+/* 搜索态：卡片高度 = 82px（控件行）+ 候选列表高度（--list-h 由 JS 同步），
+   列表在卡片内部把卡片往上挤；margin-bottom 交叠不变，输入卡纹丝不动 */
+.deck-card.search-open {
+height: calc(82px + var(--list-h, 0px));
+background: var(--surface); box-shadow: var(--shadow-md);
+}
+.deck-card.search-open .deck-peek { opacity: 0; }
+
+/* ---------- 模型胶囊 ⇄ 搜索框 morph ---------- */
+/* 同一元素 .model-pill 承担两种形态：胶囊态宽度由内容自适应撑开；
+   搜索态由 JS 驱动 --pill-w 做过渡（向右延展），内容交叉淡入淡出。 */
+.model-field { position: relative; }
+.model-pill {
+position: relative; display: inline-flex; align-items: center;
+height: 26px; padding: 0 10px;
+background: var(--surface-hover); border: 1px solid transparent; border-radius: 999px;
+cursor: pointer; overflow: hidden; white-space: nowrap;
+width: var(--pill-w, auto);  /* 胶囊态：auto，内容撑开；morph 期间：JS 显式驱动 */
+transition: width .38s var(--ease-out), background .2s ease, border-color .2s ease, box-shadow .25s var(--ease-out);
+}
+.model-pill:hover { box-shadow: var(--shadow-xs); }
+.model-pill.searching {
+background: var(--surface); border-color: var(--border-strong);
+box-shadow: var(--shadow-sm); cursor: text;
+}
+/* 胶囊态内容：模型名 + 箭头 */
+.pill-face {
+display: inline-flex; align-items: center; gap: 5px; min-width: 0; max-width: 100%;
+transition: opacity .15s ease, transform .2s var(--ease-out);
+}
+.pill-face .pill-name { font-size: 12px; font-weight: 550; color: var(--text-soft); overflow: hidden; text-overflow: ellipsis; }
+.pill-face .chev, .pill-face svg { flex-shrink: 0; color: var(--faint); display: flex; transition: transform .3s var(--ease-out); }
+.model-pill.searching .pill-face { opacity: 0; transform: translateX(-6px); pointer-events: none; }
+/* 搜索态内容：放大镜 + input + 清除；胶囊态下 absolute 脱离布局，
+   避免 flex:1 的 input 把胶囊撑宽 */
+.search-face {
+display: inline-flex; align-items: center; gap: 6px;
+position: absolute; left: 10px; right: 10px; top: 0; bottom: 0;
+opacity: 0; transform: translateX(8px); pointer-events: none;
+transition: opacity .18s ease .12s, transform .25s var(--ease-out) .12s;
+}
+.model-pill.searching .search-face { opacity: 1; transform: none; pointer-events: auto; }
+.search-face svg { flex-shrink: 0; color: var(--faint); }
+.search-face input {
+flex: 1; min-width: 0; border: 0; outline: 0; background: transparent;
+font-size: 12px; color: var(--text); font-family: inherit; height: 100%;
+}
+.search-face input::placeholder { color: var(--faint); }
+.search-face .clear-btn {
+display: inline-flex; flex-shrink: 0; border: 0; padding: 0;
+width: 14px; height: 14px; border-radius: 50%;
+background: var(--border-strong); color: var(--surface);
+font-size: 9px; line-height: 1; cursor: pointer;
+align-items: center; justify-content: center;
+}
+
+/* 候选列表：位于 deck-card 内部、控件行之下；高度由 --list-h 驱动，
+   筛选时卡片高度随列表平滑回落 */
+.model-dropdown {
+position: absolute; top: 47px; left: 10px; right: 10px; z-index: 20;
+overflow: hidden; height: var(--list-h, 0px); opacity: 0; pointer-events: none;
+transition: height .26s var(--ease-out), opacity .18s ease;
+}
+.deck-card.search-open .model-dropdown { opacity: 1; pointer-events: auto; }
+.dropdown-list {
+overflow-y: auto; max-height: 216px; height: 100%;
+border-top: 1px solid var(--border); padding: 6px 2px 2px;
+scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent;
+}
+.dropdown-list::-webkit-scrollbar { width: 5px; }
+.dropdown-list::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
+.model-option {
+display: flex; align-items: center; gap: 8px; width: 100%;
+border: 0; background: transparent; padding: 7px 8px; border-radius: 8px;
+cursor: pointer; text-align: left; min-width: 0;
+animation: model-option-in .18s var(--ease-out) backwards;
+}
+@keyframes model-option-in { from { opacity: 0; transform: translateY(-3px); } }
+.model-option:hover, .model-option.active { background: var(--surface-hover); }
+.model-option:disabled { cursor: default; }
+.model-option .o-name {
+flex: 1; min-width: 0; font-family: var(--font-mono); font-size: 12px; font-weight: 600;
+color: var(--text-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.model-option .o-name mark { background: none; color: var(--accent); }
+.model-option.selected .o-name { color: var(--accent); }
+.model-option .o-check { flex-shrink: 0; color: var(--accent); opacity: 0; transform: scale(.5); transition: all .15s ease; }
+.model-option.selected .o-check { opacity: 1; transform: scale(1); }
+.dropdown-empty { padding: 14px 10px; text-align: center; color: var(--faint); font-size: 12px; }
 /* 输入卡压在模型配置卡上方（deck-card 是定位元素，默认绘制顺序更高） */
 .composer { position: relative; z-index: 1; }
 

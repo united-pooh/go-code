@@ -76,6 +76,52 @@ function StopIcon() {
   );
 }
 
+function ChevronIcon() {
+  return (
+    <svg width="10" height="10" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+      <path d="M2.5 4.5L6 8L9.5 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function SearchIcon() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+      <circle cx="6.2" cy="6.2" r="4.7" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M9.8 9.8L12.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg className="o-check" width="12" height="12" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+      <path d="M2.5 7.5L5.5 10.5L11.5 3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/* ---------- 模型胶囊 → 搜索框 morph 的参数 ---------- */
+/** 搜索框宽度上下限（px），目标宽度为胶囊宽 + SEARCH_W_GROW */
+const SEARCH_MIN_W = 220;
+const SEARCH_MAX_W = 460;
+const SEARCH_W_GROW = 90;
+/** 候选列表最大高度（px，约 6 条），超出后列表内部滚动 */
+const LIST_MAX_H = 216;
+/** 展开后聚焦输入框的延迟（等宽度动画起步） */
+const FOCUS_DELAY_MS = 200;
+/** 选定后延迟关闭（让打勾动画可见） */
+const CHOOSE_CLOSE_MS = 140;
+
+/** 高亮模型 ID 中与查询匹配的片段。 */
+function highlightModelID(id: string, query: string): React.ReactNode {
+  const q = query.trim().toLowerCase();
+  if (!q) return id;
+  const i = id.toLowerCase().indexOf(q);
+  if (i < 0) return id;
+  return <>{id.slice(0, i)}<mark>{id.slice(i, i + q.length)}</mark>{id.slice(i + q.length)}</>;
+}
+
 export function Composer({ workspaceID, sessionID, activeTurnID, queueCount = 0, onSubmit, onSteer, onQueue, onCancel, loadCompletions, loadModelOptions, onSelectModel }: ComposerProps) {
   const storageKey = `paw:draft:${workspaceID}:${sessionID}`;
   const [text, setText] = useState(() => localStorage.getItem(storageKey) ?? '');
@@ -85,6 +131,14 @@ export function Composer({ workspaceID, sessionID, activeTurnID, queueCount = 0,
   const [completion, setCompletion] = useState<CompletionState | null>(null);
   const [modelOptions, setModelOptions] = useState<ModelOptionsResponse | null>(null);
   const [selectingModel, setSelectingModel] = useState(false);
+  // 模型选择器：searchOpen 时胶囊 morph 成搜索框，候选列表把卡片往上挤
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [modelQuery, setModelQuery] = useState('');
+  const [modelActiveIdx, setModelActiveIdx] = useState(0);
+  const pillRef = useRef<HTMLDivElement>(null);
+  const deckCardRef = useRef<HTMLDivElement>(null);
+  const modelListRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const requestSeq = useRef(0);
   const modelLoaderRef = useRef(loadModelOptions);
@@ -135,6 +189,103 @@ export function Composer({ workspaceID, sessionID, activeTurnID, queueCount = 0,
 
   const activeModel = modelOptions?.models.find((model) => model.id === modelOptions.active_model_id);
   const activeEffort = activeModel?.effort || 'default';
+
+  /* ---------- 模型选择器：胶囊 ⇄ 搜索框 morph ---------- */
+
+  // 过滤后的候选模型（输入实时筛选）
+  const filteredModels = useMemo(() => {
+    const q = modelQuery.trim().toLowerCase();
+    if (!modelOptions) return [];
+    if (!q) return modelOptions.models;
+    return modelOptions.models.filter((m) => m.id.toLowerCase().includes(q));
+  }, [modelOptions, modelQuery]);
+
+  // 展开/收缩时驱动 --pill-w 实现宽度过渡；搜索态时驱动 --list-h 让列表把卡片往上挤
+  useLayoutEffect(() => {
+    const pill = pillRef.current;
+    if (!pill) return;
+    if (searchOpen) {
+      // ① 起点 = 胶囊当前内容宽度；② 下一帧过渡到自适应目标宽度
+      const startW = pill.offsetWidth;
+      pill.style.setProperty('--pill-w', `${startW}px`);
+      void pill.offsetWidth; // 强制 reflow
+      const targetW = Math.max(SEARCH_MIN_W, Math.min(SEARCH_MAX_W, startW + SEARCH_W_GROW));
+      requestAnimationFrame(() => pill.style.setProperty('--pill-w', `${targetW}px`));
+    } else {
+      // 收缩：从当前搜索框宽度过渡到胶囊自然内容宽度，结束后交还 auto
+      pill.style.setProperty('--pill-w', `${pill.offsetWidth}px`);
+      void pill.offsetWidth;
+      requestAnimationFrame(() => {
+        pill.style.removeProperty('--pill-w');
+        const naturalW = pill.offsetWidth;
+        pill.style.setProperty('--pill-w', `${pill.offsetWidth}px`);
+        void pill.offsetWidth;
+        pill.style.setProperty('--pill-w', `${naturalW}px`);
+        setTimeout(() => pill.style.removeProperty('--pill-w'), 420);
+      });
+    }
+  }, [searchOpen]);
+
+  // 列表高度（夹紧上限）同步 --list-h 到 deck-card 与 dropdown，筛选变少时卡片平滑回落
+  useLayoutEffect(() => {
+    const list = modelListRef.current;
+    const dropdown = list?.parentElement;
+    if (!searchOpen || !deckCardRef.current || !list || !dropdown) return;
+    const listH = `${Math.min(list.scrollHeight, LIST_MAX_H)}px`;
+    deckCardRef.current.style.setProperty('--list-h', listH);
+    dropdown.style.setProperty('--list-h', listH);
+  }, [searchOpen, filteredModels]);
+
+  const openModelSearch = () => {
+    if (searchOpen || !modelOptions) return;
+    setModelQuery('');
+    setModelActiveIdx(0);
+    setSearchOpen(true);
+    setTimeout(() => searchInputRef.current?.focus(), FOCUS_DELAY_MS);
+  };
+
+  const closeModelSearch = () => {
+    if (!searchOpen) return;
+    setSearchOpen(false);
+    searchInputRef.current?.blur();
+  };
+
+  const chooseModel = (id: string) => {
+    void applyModelSelection({ model_id: id });
+    setTimeout(closeModelSearch, CHOOSE_CLOSE_MS);
+  };
+
+  // 点击卡片外部收缩
+  useEffect(() => {
+    if (!searchOpen) return;
+    const onDocClick = (event: MouseEvent) => {
+      if (!deckCardRef.current?.contains(event.target as Node)) closeModelSearch();
+    };
+    document.addEventListener('click', onDocClick);
+    return () => document.removeEventListener('click', onDocClick);
+  }, [searchOpen]);
+
+  const handleSearchKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setModelActiveIdx((i) => Math.min(i + 1, filteredModels.length - 1));
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setModelActiveIdx((i) => Math.max(i - 1, 0));
+    } else if (event.key === 'Enter') {
+      const target = filteredModels[modelActiveIdx];
+      if (target) chooseModel(target.id);
+    } else if (event.key === 'Escape') {
+      event.stopPropagation();
+      if (modelQuery) { setModelQuery(''); setModelActiveIdx(0); }
+      else closeModelSearch();
+    }
+  };
+
+  // 高亮项变化时滚动进可视区
+  useEffect(() => {
+    modelListRef.current?.children[modelActiveIdx]?.scrollIntoView({ block: 'nearest' });
+  }, [modelActiveIdx]);
 
   // 输入变化时检测 @ / / $ 触发词，防抖拉取候补。
   useEffect(() => {
@@ -246,22 +397,46 @@ export function Composer({ workspaceID, sessionID, activeTurnID, queueCount = 0,
     {running && <div className="composer-mode"><button type="button" disabled={!onSteer} className={runningAction === 'steer' ? 'active' : ''} onMouseDown={(event) => event.preventDefault()} onClick={() => setRunningAction('steer')}>即时调整</button><button type="button" disabled={!onQueue} className={runningAction === 'queue' ? 'active' : ''} onMouseDown={(event) => event.preventDefault()} onClick={() => setRunningAction('queue')}>排队</button></div>}
     {/* 卡片堆：模型配置卡在后、输入卡在前。静置时后卡只露顶部一条预览带，
         悬浮预览带或聚焦控件时后卡以高度动画向上抽出；负 margin 始终保持 30px
-        交叠，抽出后下缘依旧藏在输入卡之下，保持「抽出来的卡片」而非两张分离卡片。 */}
+        交叠，抽出后下缘依旧藏在输入卡之下，保持「抽出来的卡片」而非两张分离卡片。
+        搜索态（search-open）下候选列表在卡片内部、控件行下方展开，把卡片高度往上挤。 */}
     {modelOptions && modelOptions.models.length > 0 && (
-      <div className="deck-card">
+      <div className={searchOpen ? 'deck-card search-open' : 'deck-card'} ref={deckCardRef}>
         <div className="deck-peek" aria-hidden="true">
           {activeModel ? `${activeModel.name}${activeEffort !== 'default' ? ` · ${effortLabel(activeEffort)}` : ''}` : '模型'}
         </div>
         <div className="deck-row">
-          <label className="deck-field">
+          <div className="deck-field model-field">
             <span className="deck-tag">模型</span>
-            <select aria-label="切换模型" value={modelOptions.active_model_id} disabled={selectingModel}
-              onChange={(event) => void applyModelSelection({ model_id: event.target.value })}>
-              {modelOptions.models.map((model) => (
-                <option key={model.id} value={model.id}>{model.provider}/{model.name}</option>
-              ))}
-            </select>
-          </label>
+            {/* 胶囊/搜索框同体 morph：同一元素双形态，width 过渡向右延展 */}
+            <div className={searchOpen ? 'model-pill searching' : 'model-pill'} ref={pillRef}
+              role="button" tabIndex={0} aria-label="切换模型" aria-expanded={searchOpen}
+              onClick={(event) => { event.stopPropagation(); openModelSearch(); }}
+              onKeyDown={(event) => {
+                if ((event.key === 'Enter' || event.key === ' ') && !searchOpen) {
+                  event.preventDefault(); openModelSearch();
+                }
+              }}>
+              <span className="pill-face">
+                <span className="pill-name">{modelOptions.active_model_id}</span>
+                <ChevronIcon />
+              </span>
+              <span className="search-face">
+                <SearchIcon />
+                <input ref={searchInputRef} type="text" aria-label="搜索模型" placeholder="搜索模型…"
+                  autoComplete="off" spellCheck={false} value={modelQuery}
+                  onChange={(event) => { setModelQuery(event.target.value); setModelActiveIdx(0); }}
+                  onKeyDown={handleSearchKeyDown} />
+                {modelQuery && (
+                  <button type="button" className="clear-btn" tabIndex={-1} aria-label="清空搜索"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setModelQuery(''); setModelActiveIdx(0);
+                      searchInputRef.current?.focus();
+                    }}>✕</button>
+                )}
+              </span>
+            </div>
+          </div>
           <label className="deck-field">
             <span className="deck-tag">推理强度</span>
             <select aria-label="推理强度" value={activeEffort} disabled={selectingModel || !activeModel?.reasoning_capable}
@@ -271,6 +446,24 @@ export function Composer({ workspaceID, sessionID, activeTurnID, queueCount = 0,
               ))}
             </select>
           </label>
+        </div>
+        {/* 候选列表：deck-card 内部、控件行之下，展开时把卡片高度往上挤 */}
+        <div className="model-dropdown">
+          <div className="dropdown-list" role="listbox" aria-label="模型候选" ref={modelListRef}>
+            {filteredModels.length === 0
+              ? <div className="dropdown-empty">没有匹配「{modelQuery}」的模型</div>
+              : filteredModels.map((model, index) => (
+                <button key={model.id} type="button" role="option" aria-selected={model.id === modelOptions.active_model_id}
+                  className={['model-option', model.id === modelOptions.active_model_id ? 'selected' : '', index === modelActiveIdx ? 'active' : ''].filter(Boolean).join(' ')}
+                  style={{ animationDelay: `${index * 18}ms` }}
+                  onMouseEnter={() => setModelActiveIdx(index)}
+                  onClick={(event) => { event.stopPropagation(); chooseModel(model.id); }}
+                  disabled={selectingModel}>
+                  <span className="o-name">{highlightModelID(model.id, modelQuery)}</span>
+                  <CheckIcon />
+                </button>
+              ))}
+          </div>
         </div>
       </div>
     )}

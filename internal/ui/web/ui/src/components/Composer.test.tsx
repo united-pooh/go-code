@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Composer } from './Composer';
 
@@ -212,7 +212,7 @@ it('does not silently fall back when a running action callback is unavailable', 
   expect(actions).toEqual(['steer']);
 });
 
-it('卡片堆加载模型目录，切换模型与推理强度', async () => {
+it('卡片堆加载模型目录，胶囊 morph 成搜索框筛选切换模型与推理强度', async () => {
   const user = userEvent.setup();
   const selections: Array<{ model_id?: string; effort?: string }> = [];
   const options = {
@@ -220,6 +220,7 @@ it('卡片堆加载模型目录，切换模型与推理强度', async () => {
     models: [
       { id: 'local/alpha', name: 'alpha', provider: 'local', source: 'configured', reasoning_capable: true, effort: 'high' },
       { id: 'local/beta', name: 'beta', provider: 'local', source: 'configured', reasoning_capable: false },
+      { id: 'deepseek/deepseek-v4.1-pro', name: 'deepseek-v4.1-pro', provider: 'deepseek', source: 'catalog', reasoning_capable: true },
     ],
     effort_options: ['default', 'low', 'medium', 'high', 'xhigh', 'max'],
   };
@@ -230,22 +231,65 @@ it('卡片堆加载模型目录，切换模型与推理强度', async () => {
       if (selection.model_id) return { ...options, active_model_id: selection.model_id };
       return options;
     }} />);
-  // 卡片堆出现，peek 摘要显示当前模型与强度
-  const modelSelect = await screen.findByLabelText('切换模型');
+  // 卡片堆出现，peek 摘要显示当前模型与强度；胶囊显示当前模型 ID
+  const pill = await screen.findByRole('button', { name: '切换模型' });
   expect(screen.getByText('alpha · 高')).toBeInTheDocument();
-  expect(modelSelect).toHaveValue('local/alpha');
+  expect(pill).toHaveTextContent('local/alpha');
+  expect(pill).toHaveAttribute('aria-expanded', 'false');
   // 推理强度反映当前模型的 effort，且 reasoning_capable 时可选
   expect(screen.getByLabelText('推理强度')).toHaveValue('high');
-  // 切换模型
-  await user.selectOptions(modelSelect, 'local/beta');
+
+  // 点击胶囊 → morph 成搜索框，候选列表出现（查询限定在 listbox 内，避开原生 select 的 option）
+  await user.click(pill);
+  expect(await screen.findByLabelText('搜索模型')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: '切换模型' })).toHaveAttribute('aria-expanded', 'true');
+  const listbox = screen.getByRole('listbox', { name: '模型候选' });
+  expect(within(listbox).getAllByRole('option')).toHaveLength(3);
+
+  // 输入筛选：只剩 beta
+  await user.type(screen.getByLabelText('搜索模型'), 'beta');
+  expect(within(screen.getByRole('listbox', { name: '模型候选' })).getAllByRole('option')).toHaveLength(1);
+  // Enter 选定
+  await user.keyboard('{Enter}');
   expect(selections).toEqual([{ model_id: 'local/beta' }]);
-  expect(await screen.findByLabelText('切换模型')).toHaveValue('local/beta');
+  // 胶囊文案更新；选择器延迟 140ms 收起（让打勾动画可见），用 waitFor 等落定
+  expect(await screen.findByRole('button', { name: '切换模型' })).toHaveTextContent('local/beta');
+  await waitFor(() => expect(screen.getByRole('button', { name: '切换模型' })).toHaveAttribute('aria-expanded', 'false'));
   // beta 不支持推理 → 推理强度选择器禁用
   expect(screen.getByLabelText('推理强度')).toBeDisabled();
-  // 调整推理强度
-  await user.selectOptions(screen.getByLabelText('切换模型'), 'local/alpha');
+
+  // 再次打开，用鼠标点击切回 alpha
+  await user.click(screen.getByRole('button', { name: '切换模型' }));
+  await user.click(within(screen.getByRole('listbox', { name: '模型候选' })).getByRole('option', { name: 'local/alpha' }));
+  expect(selections).toContainEqual({ model_id: 'local/alpha' });
+  expect(await screen.findByRole('button', { name: '切换模型' })).toHaveTextContent('local/alpha');
+
+  // 调整推理强度（原生 select 保留）
   await user.selectOptions(screen.getByLabelText('推理强度'), 'max');
   expect(selections).toContainEqual({ effort: 'max' });
+});
+
+it('模型搜索：Esc 先清空再关闭，空结果显示占位', async () => {
+  const user = userEvent.setup();
+  const options = {
+    active_model_id: 'local/alpha',
+    models: [{ id: 'local/alpha', name: 'alpha', provider: 'local', source: 'configured', reasoning_capable: true }],
+    effort_options: ['default', 'high'],
+  };
+  render(<Composer workspaceID="w" sessionID="s" onSubmit={async () => undefined}
+    loadModelOptions={async () => options} onSelectModel={async () => options} />);
+  await user.click(await screen.findByRole('button', { name: '切换模型' }));
+  await user.type(screen.getByLabelText('搜索模型'), 'zzz');
+  expect(within(screen.getByRole('listbox', { name: '模型候选' })).queryByRole('option')).toBeNull();
+  expect(screen.getByText('没有匹配「zzz」的模型')).toBeInTheDocument();
+  // 第一次 Esc 清空输入，列表恢复；第二次 Esc 关闭
+  await user.keyboard('{Escape}');
+  expect(screen.getByLabelText('搜索模型')).toHaveValue('');
+  expect(within(screen.getByRole('listbox', { name: '模型候选' })).getAllByRole('option')).toHaveLength(1);
+  await user.keyboard('{Escape}');
+  // 输入框不从 DOM 卸载（同体 morph），关闭后胶囊回到未展开态、搜索框不可见
+  await waitFor(() => expect(screen.getByRole('button', { name: '切换模型' })).toHaveAttribute('aria-expanded', 'false'));
+  expect(screen.getByRole('button', { name: '切换模型' })).not.toHaveClass('searching');
 });
 
 it('未提供模型数据源时不渲染卡片堆', () => {
